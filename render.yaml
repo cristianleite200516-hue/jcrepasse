@@ -1,0 +1,42 @@
+# Blueprint do Render: backend (Docker + disco do WhatsApp) e Postgres.
+# O painel (client/) fica na Vercel.
+services:
+  - type: web
+    name: jc-crm-server
+    runtime: docker
+    rootDir: server
+    dockerfilePath: ./Dockerfile
+    dockerContext: .
+    # Chromium (WhatsApp) não cabe em 512 MB; "standard" tem 2 GB. Disco persistente exige plano pago.
+    plan: standard
+    region: oregon
+    healthCheckPath: /api/health
+    # Migra o banco, garante o admin (idempotente) e sobe o servidor.
+    dockerCommand: sh -c "npx prisma migrate deploy && npm run seed:admin && npm start"
+    disk:
+      name: wwebjs-auth
+      mountPath: /app/.wwebjs_auth
+      sizeGB: 1
+    envVars:
+      - key: DATABASE_URL
+        fromDatabase:
+          name: jc-crm-db
+          property: connectionString
+      - key: JWT_SECRET
+        generateValue: true
+      - key: DOCUMENT_TEMPLATES_DIR
+        value: templates-jc
+      - key: ANTHROPIC_API_KEY
+        sync: false
+      - key: SEED_ADMIN_EMAIL
+        sync: false
+      - key: SEED_ADMIN_PASSWORD
+        sync: false
+      - key: CLIENT_ORIGIN
+        sync: false
+
+databases:
+  - name: jc-crm-db
+    plan: basic-256mb
+    region: oregon
+    postgresMajorVersion: "16"
