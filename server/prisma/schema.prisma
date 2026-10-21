@@ -1,0 +1,275 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// SQLite não suporta enums nativos no Prisma; os valores válidos
+// (Role: ADMIN|AGENT, LeadStatus: NOVO|CONTATADO|QUALIFICADO|PROPOSTA|GANHO|PERDIDO,
+// MessageSender: LEAD|AI|AGENT) são validados na camada de aplicação (zod).
+
+model User {
+  id           String   @id @default(cuid())
+  name         String
+  email        String   @unique
+  passwordHash String
+  role         String   @default("AGENT")
+  dailyGoal    Int? // meta individual de fechamentos por dia, mostrada no Painel do dia
+  createdAt    DateTime @default(now())
+
+  assignedLeads Lead[]
+  auditLogs     AuditLog[]
+}
+
+// Registro de quem mudou o quê num lead (status, valores, responsável) — pra auditoria.
+model AuditLog {
+  id        String   @id @default(cuid())
+  leadId    String
+  lead      Lead     @relation(fields: [leadId], references: [id])
+  userId    String?
+  user      User?    @relation(fields: [userId], references: [id])
+  field     String // ex: "status", "purchasePrice", "assignedToId"
+  oldValue  String?
+  newValue  String?
+  createdAt DateTime @default(now())
+}
+
+model Lead {
+  id         String     @id @default(cuid())
+  name       String?
+  phone      String     @unique
+  status     String     @default("NOVO")
+  lossReason String? // motivo informado quando o status vira PERDIDO (ex: "preço", "concorrência", "desistiu")
+  source     String     @default("whatsapp") // origem técnica: whatsapp | manual
+  channel    String? // canal de marketing: TRAFEGO_PAGO | INDICACAO | OUTRO
+  score      Int        @default(0)
+  notes      String?
+  assignedToId String?
+  assignedTo   User?    @relation(fields: [assignedToId], references: [id])
+
+  // Informações de contato
+  email             String?
+  address           String?
+  addressComplement String? // ex: "Casa 11", "Apto 606"
+  cep               String?
+  city              String?
+  state             String? // UF, ex: "SP"
+
+  // Dados pessoais usados em documentos (ex: procuração)
+  cpf          String?
+  rg           String?
+  nationality  String? // ex: "BRASILEIRO"
+  profession   String?
+  phone2       String? // telefone alternativo, usado em contratos (ex: WhatsApp)
+  areaCode     String? // DDD deduzido da cidade que o lead citou na conversa; "" = já analisado, sem cidade
+  doNotContact Boolean   @default(false) // pediu pra sair (SAIR): fica de fora de campanhas e reengajamentos
+
+  // Dados do COMPRADOR, para quando o veículo comprado deste lead é revendido a terceiro
+  // (contrato de repasse). É uma pessoa diferente do lead (que é sempre o vendedor original).
+  buyerName        String?
+  buyerCpf         String?
+  buyerRg          String?
+  buyerNationality String?
+  buyerProfession  String?
+  buyerPhone       String?
+  buyerEmail       String?
+  buyerAddress     String?
+  buyerNeighborhood String?
+  buyerCep         String?
+  buyerCity        String?
+  buyerState       String?
+
+  // Dados da revenda (contrato de repasse ao comprador)
+  saleOperationalFee Float? // taxa operacional descontada do valor bruto
+  saleAssumedDebts   Float? // débitos assumidos, descontados do valor bruto
+  deliveryDate       DateTime?
+  deliveryTime       String? // ex: "17:00"
+  deliveryManual     Boolean @default(false)
+  deliveryKey        Boolean @default(false)
+  deliveryProcuracao Boolean @default(false)
+  deliveryDut        Boolean @default(false)
+  witness1Name       String?
+  witness1Cpf        String?
+  witness2Name       String?
+  witness2Cpf        String?
+
+  // Pipeline de revenda: só é relevante depois que o veículo foi comprado do lead
+  // (status GANHO/FECHADO) — acompanha o carro até ser vendido a um comprador.
+  resaleStatus String    @default("EM_ESTOQUE") // EM_ESTOQUE | ANUNCIADO | NEGOCIANDO | VENDIDO
+  soldAt       DateTime? // preenchido quando resaleStatus vira VENDIDO
+  purchasedBy  String? // quem prospectou/fechou a compra do veículo com o lead
+  soldBy       String? // quem vendeu o veículo ao comprador final
+
+  // Dados do veículo usados em documentos (ex: procuração) — complementam vehicleBrand/Model/Year
+  vehiclePlate     String?
+  vehicleChassi    String?
+  vehicleRenavam   String?
+  vehicleColor     String?
+  vehicleFuel      String?
+  vehicleCategory  String? // ex: "PARTICULAR"
+  vehicleSituation String? // ex: "VIGENTE (EM CIRCULAÇÃO)"
+  vehicleCity      String? // cidade/UF de registro do veículo, se diferente do endereço do lead
+  vehicleState     String?
+  vehicleLienBank  String? // alienação fiduciária, se houver
+
+  // Dados do veículo que o lead quer vender
+  vehicleInfo    String? // resumo livre extraído pela IA, ex: "Honda Civic 2018, 80.000km, prata"
+  askingPrice    String? // valor pretendido pelo lead, em texto livre (ex: "R$ 45.000")
+  urgency        String? // ex: "precisa vender essa semana"
+
+  // Campos estruturados do veículo, preenchidos manualmente e usados na consulta FIPE
+  vehicleBrand String?
+  vehicleModel String?
+  vehicleYear  String?
+  vehicleKm    Int?
+  fipeValue    String? // valor de referência retornado pela Tabela FIPE
+  fipeCode     String? // código FIPE do veículo consultado
+
+  // Financeiro da negociação
+  purchasePrice Float? // valor pago ao lead pelo veículo
+  salePrice     Float? // valor de revenda do veículo
+  fineDebts     Float? // débitos de multa
+  ipvaDebt      Float? // IPVA em aberto
+  otherExpenses Float? // outras despesas
+  prepCost      Float? // custo de preparo/reforma do veículo
+
+  createdAt  DateTime   @default(now())
+  updatedAt  DateTime   @updatedAt
+  closedAt   DateTime?  // preenchido automaticamente quando o status vira GANHO, usado nos comparativos mensais
+
+  conversation Conversation?
+  appointments Appointment[]
+  attachments  Attachment[]
+  reminders    Reminder[]
+  auditLogs    AuditLog[]
+  signatures   DocumentSignature[]
+}
+
+// Assinatura eletrônica simples (não é assinatura digital certificada ICP-Brasil): o
+// signatário abre um link único, digita o nome completo e confirma. Fica registrado
+// nome, data/hora e IP como comprovante de aceite.
+model DocumentSignature {
+  id         String    @id @default(cuid())
+  leadId     String
+  lead       Lead      @relation(fields: [leadId], references: [id])
+  token      String    @unique
+  docType    String // PROCURACAO | CONTRATO_REPASSE
+  pdfFile    String // nome do arquivo PDF gerado, em uploads/signatures/
+  status     String    @default("PENDENTE") // PENDENTE | ASSINADO
+  signerName String?
+  signerIp   String?
+  signedAt   DateTime?
+  createdAt  DateTime  @default(now())
+}
+
+model Attachment {
+  id           String   @id @default(cuid())
+  leadId       String
+  lead         Lead     @relation(fields: [leadId], references: [id])
+  filename     String // nome do arquivo salvo em disco
+  originalName String
+  mimeType     String
+  size         Int
+  category     String   @default("FOTO") // FOTO | DOCUMENTO | AUDIO
+  createdAt    DateTime @default(now())
+  message      Message?
+}
+
+model Appointment {
+  id          String   @id @default(cuid())
+  leadId      String
+  lead        Lead     @relation(fields: [leadId], references: [id])
+  scheduledAt DateTime
+  status      String   @default("AGENDADO") // AGENDADO | CONFIRMADO | REALIZADO | CANCELADO
+  notes       String?
+  // Quando a mensagem automática de confirmação (véspera da visita) foi mandada pro lead.
+  confirmationSentAt DateTime?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+// Lembrete pra equipe retomar contato com o lead numa data futura — diferente de
+// Appointment (que é uma visita/avaliação presencial agendada). Criado manualmente pela
+// equipe ou automaticamente pela IA quando o lead pede pra ser chamado depois
+// (ex: "me liga semana que vem").
+model Reminder {
+  id        String   @id @default(cuid())
+  leadId    String
+  lead      Lead     @relation(fields: [leadId], references: [id])
+  dueAt     DateTime
+  note      String?
+  done      Boolean  @default(false)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model Conversation {
+  id               String   @id @default(cuid())
+  leadId           String   @unique
+  lead             Lead     @relation(fields: [leadId], references: [id])
+  aiEnabled        Boolean  @default(true)
+  createdAt        DateTime @default(now())
+  // Quantas vezes a IA já tentou reengajar sem resposta desde a última mensagem do lead —
+  // usado pra variar a abordagem a cada tentativa em vez de repetir a mesma cantada.
+  followUpAttempts Int      @default(0)
+  // Liga quando o lead manda mensagem, desliga quando alguém abre a conversa no painel —
+  // usado pra destacar na aba Conversas quem respondeu e ainda não foi visto.
+  unread           Boolean  @default(false)
+  // Quando o auditor de atendimento mandou o último aviso de "lead sem resposta" pra essa
+  // conversa — evita repetir o mesmo aviso a cada checagem enquanto a mensagem seguir parada.
+  auditAlertedAt   DateTime?
+  // Quando alguém da equipe responde, a IA fica pausada só até aqui (em vez de desligar pra sempre)
+  // e depois volta a atender sozinha. null = sem pausa. O aiEnabled=false continua sendo o
+  // desligamento definitivo (botão no painel ou passagem pra humano pedida pela própria IA).
+  aiPausedUntil    DateTime?
+
+  messages Message[]
+}
+
+model Message {
+  id             String        @id @default(cuid())
+  conversationId String
+  conversation   Conversation  @relation(fields: [conversationId], references: [id])
+  sender         String
+  content        String
+  waMessageId    String?       @unique // id da mensagem no WhatsApp, evita duplicar em importações
+  attachmentId   String?       @unique // preenchido quando a mensagem é um áudio/foto/documento
+  attachment     Attachment?   @relation(fields: [attachmentId], references: [id])
+  createdAt      DateTime      @default(now())
+}
+
+model Settings {
+  id                String  @id @default("singleton")
+  aiSystemPrompt    String
+  businessInfo      String
+  dailyClosingGoal  Int? // meta de fechamentos por dia, mostrada no painel do dia
+  // Interruptor geral: quando true, a IA não responde NENHUM lead (novo ou existente),
+  // em nenhum fluxo (mensagem recebida, reengajamento, catch-up) — sobrepõe o aiEnabled
+  // de cada conversa individual.
+  aiPaused          Boolean @default(false)
+
+  // Localização da loja, usada para enviar o pin de localização pelo WhatsApp
+  storeName    String?
+  storeAddress String?
+  storeLat     Float?
+  storeLng     Float?
+
+  // Número (com DDI+DDD, ex: 5541988598771) que recebe os avisos automáticos do auditor de
+  // atendimento — leads que mandaram mensagem e ficaram sem resposta por tempo demais.
+  auditPhone String?
+
+  // Respostas prontas da equipe, em JSON: [{ "title": "PIX", "text": "..." }]
+  quickReplies String?
+
+  // Controle das automações diárias/semanais (data "AAAA-MM-DD" da última execução), pra não
+  // repetirem depois de um reinício do servidor no mesmo dia.
+  dailySummarySentOn  String?
+  weeklyFollowUpRunOn String?
+
+  // Limite diário dos envios em lote: dia ("AAAA-MM-DD") e quantos já saíram nele.
+  broadcastSentDay   String?
+  broadcastSentCount Int     @default(0)
+}

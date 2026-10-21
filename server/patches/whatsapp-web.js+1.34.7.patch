@@ -1,0 +1,246 @@
+diff --git a/node_modules/whatsapp-web.js/src/Client.js b/node_modules/whatsapp-web.js/src/Client.js
+index 800109e..d457afd 100644
+--- a/node_modules/whatsapp-web.js/src/Client.js
++++ b/node_modules/whatsapp-web.js/src/Client.js
+@@ -490,18 +490,36 @@ class Client extends EventEmitter {
+             referer: 'https://whatsapp.com/',
+         });
+ 
+-        await this.inject();
+-
++        // Registered BEFORE the first inject: WhatsApp Web sometimes reloads itself right after the
++        // first load (new web build, session logged out from the phone). With the listener only added
++        // after a successful inject, that reload killed the first inject with "Execution context was
++        // destroyed" and initialize() rejected every single time — the new page was never injected.
+         this.pupPage.on('framenavigated', async (frame) => {
+-            if (frame.url().includes('post_logout=1') || this.lastLoggedOut) {
+-                this.emit(Events.DISCONNECTED, 'LOGOUT');
+-                await this.authStrategy.logout();
+-                await this.authStrategy.beforeBrowserInitialized();
+-                await this.authStrategy.afterBrowserInitialized();
+-                this.lastLoggedOut = false;
++            if (frame !== this.pupPage.mainFrame()) return;
++            try {
++                if (frame.url().includes('post_logout=1') || this.lastLoggedOut) {
++                    this.emit(Events.DISCONNECTED, 'LOGOUT');
++                    await this.authStrategy.logout();
++                    await this.authStrategy.beforeBrowserInitialized();
++                    await this.authStrategy.afterBrowserInitialized();
++                    this.lastLoggedOut = false;
++                }
++                await this.inject();
++            } catch (err) {
++                // Another navigation right away destroys this context too; the next
++                // framenavigated event injects again.
++                if (!String(err && err.message).includes('Execution context was destroyed')) {
++                    this.emit('inject_error', err);
++                }
+             }
+-            await this.inject();
+         });
++
++        try {
++            await this.inject();
++        } catch (err) {
++            if (!String(err && err.message).includes('Execution context was destroyed')) throw err;
++            // The page navigated mid-inject; the framenavigated listener above injects the new page.
++        }
+     }
+ 
+     /**
+diff --git a/node_modules/whatsapp-web.js/src/structures/Message.js b/node_modules/whatsapp-web.js/src/structures/Message.js
+index dd977e8..3fb73ac 100644
+--- a/node_modules/whatsapp-web.js/src/structures/Message.js
++++ b/node_modules/whatsapp-web.js/src/structures/Message.js
+@@ -566,6 +566,10 @@ class Message extends Base {
+                         mediaKey: msg.mediaKey,
+                         mediaKeyTimestamp: msg.mediaKeyTimestamp,
+                         type: msg.type,
++                        // Without it WhatsApp Web assumes application/octet-stream and rejects any
++                        // media that is not already in its cache ("Unexpected mimetype ... for media
++                        // type image", surfacing as an opaque "t: t"). wwebjs/whatsapp-web.js#201908.
++                        mimetype: msg.mimetype,
+                         signal: new AbortController().signal,
+                         downloadQpl: mockQpl,
+                     });
+diff --git a/node_modules/whatsapp-web.js/src/util/Injected/Utils.js b/node_modules/whatsapp-web.js/src/util/Injected/Utils.js
+index 540078a..32195a9 100644
+--- a/node_modules/whatsapp-web.js/src/util/Injected/Utils.js
++++ b/node_modules/whatsapp-web.js/src/util/Injected/Utils.js
+@@ -483,6 +483,15 @@ exports.LoadUtils = () => {
+             ...extraOptions,
+         };
+ 
++        // MediaData is a model whose private __x_id field collides with Msg's
++        // internal id field when its enumerable properties are spread above,
++        // breaking getValidatedSender() during Msg initialization
++        // ("Data passed to getter must include an id property"). Upstream fix:
++        // wwebjs/whatsapp-web.js#201923.
++        if (message.__x_id) {
++            delete message.__x_id;
++        }
++
+         // Bot's won't reply if canonicalUrl is set (linking)
+         if (botOptions) {
+             delete message.canonicalUrl;
+@@ -582,7 +591,7 @@ exports.LoadUtils = () => {
+ 
+         return window
+             .require('WAWebCollections')
+-            .Msg.get(newMsgKey._serialized);
++            .Msg.get(window.WWebJS.getMsgKeyId(newMsgKey));
+     };
+ 
+     window.WWebJS.editMessage = async (msg, content, options = {}) => {
+@@ -625,7 +634,9 @@ exports.LoadUtils = () => {
+         await window
+             .require('WAWebSendMessageEditAction')
+             .sendMessageEdit(msg, content, internalOptions);
+-        return window.require('WAWebCollections').Msg.get(msg.id._serialized);
++        return window
++            .require('WAWebCollections')
++            .Msg.get(window.WWebJS.getMsgKeyId(msg.id));
+     };
+ 
+     window.WWebJS.toStickerData = async (mediaInfo) => {
+@@ -834,6 +845,20 @@ exports.LoadUtils = () => {
+             });
+         }
+ 
++        // The rename reaches the serialized model too: `msg.id` comes back carrying `$1` and no
++        // `_serialized`, so every consumer of `message.id._serialized` — including this library's own
++        // Message structure and anything keyed on a message id — silently receives undefined. Restore
++        // it here, where `msg.id.remote` is already normalised, so the whole downstream surface keeps
++        // working rather than each caller having to know about `$1`.
++        if (typeof msg.id === 'object' && msg.id._serialized == null) {
++            const serializedId = window.WWebJS.getMsgKeyId(msg.id);
++            if (serializedId) {
++                msg.id = Object.assign({}, msg.id, {
++                    _serialized: serializedId,
++                });
++            }
++        }
++
+         delete msg.pendingAckUpdate;
+ 
+         return msg;
+@@ -917,12 +942,34 @@ exports.LoadUtils = () => {
+         };
+     };
+ 
++    /**
++     * The serialized id of a message key, tolerating WhatsApp Web having renamed the key's
++     * `_serialized` property to `$1`. Reading the old name now returns `undefined`, which reaches
++     * IndexedDB as a `.get(undefined)` and throws
++     * `DataError: Failed to execute 'get' on 'IDBObjectStore': No key or key range specified.`
++     * `_serialized` is preferred so nothing changes wherever it is still present (chat ids, for
++     * example, are unaffected by the rename). Returns undefined when neither exists, so callers can
++     * skip the lookup instead of querying a store with a nullish key.
++     * @param {Object} key a message key, e.g. `chat.lastReceivedKey` or a raw `msg.id`
++     * @returns {string|undefined}
++     */
++    window.WWebJS.getMsgKeyId = (key) =>
++        key?._serialized ?? key?.$1 ?? undefined;
++
+     window.WWebJS.getChats = async () => {
+         const chats = window.require('WAWebCollections').Chat.getModelsArray();
+-        const chatPromises = chats.map((chat) =>
+-            window.WWebJS.getChatModel(chat),
+-        );
+-        return await Promise.all(chatPromises);
++
++        // Process each chat individually — one failure should not discard every chat
++        const results = [];
++        for (const chat of chats) {
++            try {
++                const model = await window.WWebJS.getChatModel(chat);
++                if (model) results.push(model);
++            } catch {
++                // skip chats that fail serialization (e.g. LID-based group metadata issues)
++            }
++        }
++        return results;
+     };
+ 
+     window.WWebJS.getChannels = async () => {
+@@ -957,7 +1004,12 @@ exports.LoadUtils = () => {
+             const groupMetadata =
+                 window.require('WAWebCollections').GroupMetadata ||
+                 window.require('WAWebCollections').WAWebGroupMetadataCollection;
+-            await groupMetadata.update(chatWid);
++            try {
++                await groupMetadata.update(chatWid);
++            } catch {
++                // LID-based chat IDs may not be found in IndexedDB — skip group metadata
++                model.groupMetadata = null;
++            }
+             const { toPn } = window.require('WAWebLidMigrationUtils');
+             const serializedMetadata = chat.groupMetadata.serialize();
+             for (const p of serializedMetadata.participants || []) {
+@@ -981,16 +1033,17 @@ exports.LoadUtils = () => {
+ 
+         model.lastMessage = null;
+         if (model.msgs && model.msgs.length) {
+-            const lastMessage = chat.lastReceivedKey
++            const lastReceivedKeyId = window.WWebJS.getMsgKeyId(
++                chat.lastReceivedKey,
++            );
++            const lastMessage = lastReceivedKeyId
+                 ? window
+                       .require('WAWebCollections')
+-                      .Msg.get(chat.lastReceivedKey._serialized) ||
++                      .Msg.get(lastReceivedKeyId) ||
+                   (
+                       await window
+                           .require('WAWebCollections')
+-                          .Msg.getMessagesById([
+-                              chat.lastReceivedKey._serialized,
+-                          ])
++                          .Msg.getMessagesById([lastReceivedKeyId])
+                   )?.messages?.[0]
+                 : null;
+             lastMessage &&
+diff --git a/node_modules/whatsapp-web.js/src/util/Puppeteer.js b/node_modules/whatsapp-web.js/src/util/Puppeteer.js
+index 54df700..9a6c93e 100644
+--- a/node_modules/whatsapp-web.js/src/util/Puppeteer.js
++++ b/node_modules/whatsapp-web.js/src/util/Puppeteer.js
+@@ -17,7 +17,38 @@ async function exposeFunctionIfAbsent(page, name, fn) {
+     if (exist) {
+         return;
+     }
+-    await page.exposeFunction(name, fn);
++    // The `window[name]` check above only reflects page-level JS state, which resets on
++    // navigation — but the underlying CDP binding (added via Runtime.addBinding) survives a
++    // same-page navigation like the one WhatsApp Web does right after a QR scan succeeds. That
++    // mismatch makes the check pass (window[name] looks absent) while the actual
++    // page.exposeFunction() call below still throws "already exists", crashing the client at the
++    // exact moment of login and forcing a full reconnect loop. Since the binding already being
++    // registered is harmless (it's the same function we'd otherwise add), swallow just that error.
++    // page.exposeFunction() registers the binding on EVERY frame of the page; if any one of them
++    // (WhatsApp Web creates and discards internal frames while it loads) closes mid-call, the
++    // whole call rejects with "Target closed" — right after login that aborted the setup that
++    // emits `ready`, so the client stayed stuck at 99% forever. Retry a few times, and accept it
++    // when the main frame already has the function, which is the one that matters.
++    for (let attempt = 1; ; attempt++) {
++        try {
++            await page.exposeFunction(name, fn);
++            return;
++        } catch (err) {
++            if (err instanceof Error && err.message.includes('already exists')) {
++                return;
++            }
++            const targetClosed =
++                err instanceof Error &&
++                (err.name === 'TargetCloseError' || err.message.includes('Target closed'));
++            if (!targetClosed) throw err;
++            const ready = await page
++                .evaluate((name) => typeof window[name] === 'function', name)
++                .catch(() => false);
++            if (ready) return;
++            if (attempt >= 3) throw err;
++            await new Promise((r) => setTimeout(r, 500));
++        }
++    }
+ }
+ 
+ module.exports = { exposeFunctionIfAbsent };

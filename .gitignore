@@ -1,0 +1,17 @@
+node_modules/
+dist/
+.env
+server/dev.db
+server/dev.db-journal
+server/prisma/dev.db
+server/prisma/dev.db-journal
+*.db
+*.db-journal
+server/.wwebjs_auth/
+server/.wwebjs_cache/
+server/uploads/
+server/backups/
+server/prisma/migrations_sqlite_backup/
+server/.pg-migration-scratch/
+*.log
+.DS_Store

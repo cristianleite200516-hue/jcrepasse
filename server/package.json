@@ -1,0 +1,59 @@
+{
+  "name": "crm-server",
+  "version": "1.0.0",
+  "private": true,
+  "type": "commonjs",
+  "scripts": {
+    "dev": "tsx watch src/index.ts",
+    "build": "tsc -p tsconfig.json",
+    "start": "node dist/index.js",
+    "seed:admin": "tsx src/scripts/seedAdmin.ts",
+    "restore:backup": "tsx src/scripts/restoreBackup.ts",
+    "restore:full-backup": "tsx src/scripts/restoreFullBackup.ts",
+    "prisma:migrate": "prisma migrate dev",
+    "prisma:generate": "prisma generate",
+    "backup": "bash scripts/backup.sh",
+    "postinstall": "patch-package"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.32.1",
+    "@prisma/client": "^5.22.0",
+    "bcryptjs": "^2.4.3",
+    "cors": "^2.8.5",
+    "docxtemplater": "^3.69.3",
+    "dotenv": "^16.4.5",
+    "express": "^4.21.1",
+    "jsonwebtoken": "^9.0.2",
+    "multer": "^2.2.0",
+    "pizzip": "^3.2.0",
+    "qrcode": "^1.5.4",
+    "socket.io": "^4.8.1",
+    "whatsapp-web.js": "^1.34.7",
+    "zod": "^3.23.8"
+  },
+  "overrides": {
+    "puppeteer": "22.13.1"
+  },
+  "devDependencies": {
+    "@types/bcryptjs": "^2.4.6",
+    "@types/cors": "^2.8.17",
+    "@types/express": "^4.17.21",
+    "@types/jsonwebtoken": "^9.0.7",
+    "@types/multer": "^2.2.0",
+    "@types/node": "^22.10.2",
+    "@types/pizzip": "^3.0.5",
+    "@types/qrcode": "^1.5.5",
+    "patch-package": "^8.0.1",
+    "prisma": "^5.22.0",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.2"
+  },
+  "allowScripts": {
+    "esbuild@0.28.2": true,
+    "prisma@5.22.0": true,
+    "puppeteer@22.13.1": true,
+    "@prisma/client@5.22.0": true,
+    "@prisma/engines@5.22.0": true,
+    "fsevents@2.3.3": true
+  }
+}
