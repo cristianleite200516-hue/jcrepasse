@@ -31,6 +31,51 @@ function margin(l: Lead): number | null {
   return (p / l.salePrice) * 100;
 }
 
+type MoneyField = "purchasePrice" | "salePrice" | "ipvaDebt" | "fineDebts" | "prepCost" | "otherExpenses";
+
+// Aceita "12500", "12.500,50", "R$ 12.500" e "12500.5"; vazio limpa o campo.
+function parseMoney(raw: string): number | null | undefined {
+  const t = raw.replace(/R\$|\s/g, "");
+  if (!t) return null;
+  let n: number;
+  if (t.includes(",")) n = Number(t.replace(/\./g, "").replace(",", "."));
+  else if (/^\d{1,3}(\.\d{3})+$/.test(t)) n = Number(t.replace(/\./g, ""));
+  else n = Number(t);
+  return Number.isFinite(n) && n >= 0 ? n : undefined;
+}
+
+function MoneyCell({
+  value,
+  hidden,
+  onSave,
+}: {
+  value: number | null;
+  hidden: boolean;
+  onSave: (v: number | null) => void;
+}) {
+  if (hidden) return <span className="text-slate-500">{value != null ? "R$ ••••" : "—"}</span>;
+  return (
+    <input
+      key={value ?? "vazio"}
+      defaultValue={value != null ? value.toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : ""}
+      onBlur={(e) => {
+        const parsed = parseMoney(e.target.value);
+        if (parsed === undefined) {
+          e.target.value = value != null ? String(value) : "";
+          return;
+        }
+        if (parsed !== value) onSave(parsed);
+      }}
+      onKeyDown={(e) => {
+        if (e.key === "Enter") (e.target as HTMLInputElement).blur();
+      }}
+      inputMode="decimal"
+      placeholder="0,00"
+      className="w-28 rounded-md border border-slate-300 bg-transparent px-2 py-1 text-right text-xs text-slate-800 placeholder:text-slate-400"
+    />
+  );
+}
+
 function NamePicker({ value, onChange }: { value: string | null; onChange: (v: string) => void }) {
   const isCustom = !!value && !TEAM_NAMES.includes(value);
   const [showCustom, setShowCustom] = useState(isCustom);
@@ -134,6 +179,15 @@ export function Profitability() {
     await api.patch(`/leads/${leadId}`, { [field]: value || null });
   }
 
+  async function updateMoney(leadId: string, field: MoneyField, value: number | null) {
+    setLeads((prev) => prev.map((l) => (l.id === leadId ? { ...l, [field]: value } : l)));
+    try {
+      await api.patch(`/leads/${leadId}`, { [field]: value });
+    } catch {
+      alert("Não consegui salvar o valor. Tente de novo.");
+    }
+  }
+
   const sorted = useMemo(() => {
     const result = [...leads];
     if (sortMode === "lucro") {
@@ -210,7 +264,11 @@ export function Profitability() {
                 <th className="px-4 py-2">Status</th>
                 <th className="px-4 py-2 text-right">Compra</th>
                 <th className="px-4 py-2 text-right">Venda</th>
-                <th className="px-4 py-2 text-right">Custos</th>
+                <th className="px-4 py-2 text-right">IPVA</th>
+                <th className="px-4 py-2 text-right">Multas</th>
+                <th className="px-4 py-2 text-right">Preparo</th>
+                <th className="px-4 py-2 text-right">Outras</th>
+                <th className="px-4 py-2 text-right">Total custos</th>
                 <th className="px-4 py-2 text-right">Lucro</th>
                 <th className="px-4 py-2 text-right">Margem</th>
               </tr>
@@ -242,12 +300,11 @@ export function Profitability() {
                       <NamePicker value={l.soldBy} onChange={(v) => updateField(l.id, "soldBy", v)} />
                     </td>
                     <td className="px-4 py-2 text-slate-500">{STATUS_LABELS[l.status]}</td>
-                    <td className="px-4 py-2 text-right text-slate-600">
-                      {l.purchasePrice != null ? maskCurrency(hidden, fmtCurrency(l.purchasePrice)) : "—"}
-                    </td>
-                    <td className="px-4 py-2 text-right text-slate-600">
-                      {l.salePrice != null ? maskCurrency(hidden, fmtCurrency(l.salePrice)) : "—"}
-                    </td>
+                    {(["purchasePrice", "salePrice", "ipvaDebt", "fineDebts", "prepCost", "otherExpenses"] as MoneyField[]).map((f) => (
+                      <td key={f} className="px-2 py-2 text-right">
+                        <MoneyCell value={l[f]} hidden={hidden} onSave={(v) => updateMoney(l.id, f, v)} />
+                      </td>
+                    ))}
                     <td className="px-4 py-2 text-right text-slate-500">{costs(l) > 0 ? maskCurrency(hidden, fmtCurrency(costs(l))) : "—"}</td>
                     <td
                       className={`px-4 py-2 text-right font-medium ${
@@ -264,7 +321,7 @@ export function Profitability() {
               })}
               {sorted.length === 0 && (
                 <tr>
-                  <td colSpan={11} className="px-4 py-6 text-center text-slate-500">
+                  <td colSpan={15} className="px-4 py-6 text-center text-slate-500">
                     Nenhum negócio com valor de compra ou venda preenchido ainda
                   </td>
                 </tr>
