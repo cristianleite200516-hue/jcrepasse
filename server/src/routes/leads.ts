@@ -18,6 +18,19 @@ const SIGNATURES_DIR = path.join(UPLOADS_DIR, "signatures");
 // documento, etc.) mudam com frequência demais pra valer a pena rastrear.
 const AUDITED_FIELDS = ["status", "purchasePrice", "salePrice", "assignedToId", "lossReason", "resaleStatus"] as const;
 
+// Valores financeiros do negócio: só admin altera. Os formulários reenviam todos os campos a cada
+// salvamento, então o que bloqueia é mudar o valor, não apenas enviá-lo.
+const FINANCIAL_FIELDS = [
+  "purchasePrice",
+  "salePrice",
+  "fineDebts",
+  "ipvaDebt",
+  "otherExpenses",
+  "prepCost",
+  "saleOperationalFee",
+  "saleAssumedDebts",
+] as const;
+
 export const leadsRouter = Router();
 leadsRouter.use(requireAuth);
 
@@ -309,6 +322,25 @@ leadsRouter.patch("/:id", async (req: AuthedRequest, res) => {
   const parsed = updateLeadSchema.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
 
+  if (req.user?.role !== "ADMIN" && FINANCIAL_FIELDS.some((f) => parsed.data[f] !== undefined)) {
+    const current = await prisma.lead.findUnique({
+      where: { id: req.params.id },
+      select: {
+        purchasePrice: true,
+        salePrice: true,
+        fineDebts: true,
+        ipvaDebt: true,
+        otherExpenses: true,
+        prepCost: true,
+        saleOperationalFee: true,
+        saleAssumedDebts: true,
+      },
+    });
+    if (current && FINANCIAL_FIELDS.some((f) => parsed.data[f] !== undefined && parsed.data[f] !== current[f])) {
+      return res.status(403).json({ error: "Apenas administradores podem alterar valores financeiros" });
+    }
+  }
+
   const data: Record<string, unknown> = { ...parsed.data };
   if (parsed.data.deliveryDate !== undefined) {
     data.deliveryDate = parsed.data.deliveryDate ? new Date(parsed.data.deliveryDate) : null;
@@ -426,9 +458,13 @@ const stockSchema = z.object({
   notes: z.string().optional(),
 });
 
-leadsRouter.post("/stock", async (req, res) => {
+leadsRouter.post("/stock", async (req: AuthedRequest, res) => {
   const parsed = stockSchema.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
+
+  if (req.user?.role !== "ADMIN" && parsed.data.purchasePrice != null) {
+    return res.status(403).json({ error: "Apenas administradores podem alterar valores financeiros" });
+  }
 
   const label = [parsed.data.vehicleBrand, parsed.data.vehicleModel, parsed.data.vehicleColor]
     .filter(Boolean)

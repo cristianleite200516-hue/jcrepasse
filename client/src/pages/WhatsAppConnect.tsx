@@ -69,8 +69,9 @@ export function WhatsAppConnect() {
   useEffect(() => {
     load();
     loadAiPaused();
-    function onQr(payload: { qr: string }) {
-      setQr(payload.qr);
+    // O socket só avisa que há QR novo; a imagem vem do status, que só a entrega pra admin.
+    function onQr() {
+      load();
     }
     function onStatus(payload: { status: Status }) {
       setStatus(payload.status);
@@ -171,6 +172,7 @@ export function WhatsAppConnect() {
     <div className="max-w-md">
       <h1 className="mb-4 text-lg font-bold text-slate-900">Conexão com WhatsApp</h1>
 
+      {isAdmin && (
       <div
         className={`mb-4 flex items-center justify-between rounded-lg border p-4 ${
           aiPaused ? "border-amber-600 bg-amber-50" : "border-slate-200 bg-white"
@@ -196,6 +198,7 @@ export function WhatsAppConnect() {
           {togglingAi ? "..." : aiPaused ? "Reativar IA" : "Pausar IA"}
         </button>
       </div>
+      )}
 
       <div className="rounded-lg border border-slate-200 bg-white p-6 text-center">
         {status === "READY" && (
@@ -203,6 +206,8 @@ export function WhatsAppConnect() {
             <div className="text-emerald-600 font-medium mb-4">
               ✅ WhatsApp conectado e pronto para atender.
             </div>
+            {isAdmin && (
+            <>
             <p className="mb-3 text-sm text-slate-500">
               Já tem conversas no WhatsApp de antes de conectar aqui? Importe todas para o CRM (isso não
               envia nenhuma mensagem, só traz o histórico e cria os leads).
@@ -298,10 +303,12 @@ export function WhatsAppConnect() {
               )}
               {reengageError && <div className="text-sm text-red-600">{reengageError}</div>}
             </div>
+            </>
+            )}
           </>
         )}
         {status === "CONNECTING" && <div className="text-slate-500">Conectando...</div>}
-        {status === "QR" && qr && (
+        {isAdmin && status === "QR" && qr && (
           <>
             <p className="mb-3 text-sm text-slate-500">
               Escaneie o QR code abaixo com o WhatsApp do número que vai atender os leads
@@ -310,7 +317,12 @@ export function WhatsAppConnect() {
             <img src={qr} alt="QR Code do WhatsApp" className="mx-auto w-80 h-80" />
           </>
         )}
-        {status === "DISCONNECTED" && (
+        {!isAdmin && (status === "QR" || status === "DISCONNECTED") && (
+          <p className="text-sm text-slate-500">
+            O WhatsApp está desconectado. Peça a um administrador para conectar.
+          </p>
+        )}
+        {isAdmin && status === "DISCONNECTED" && (
           <>
             <p className="mb-3 text-sm text-slate-500">
               O WhatsApp ainda não está conectado. Clique abaixo para gerar o QR code.

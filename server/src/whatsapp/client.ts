@@ -427,7 +427,9 @@ export function initWhatsApp() {
     // no tamanho padrão da lib ele saía pequeno e a tela ampliava, ficando borrado.
     const dataUrl = await qrcode.toDataURL(qr, { width: 500, margin: 2 });
     lastQr = dataUrl;
-    getIO().emit("whatsapp:qr", { qr: dataUrl });
+    // O socket não é autenticado e vai pra todo mundo, então só avisa que há QR novo; a imagem
+    // é buscada em GET /whatsapp/status, que só a entrega pra admin.
+    getIO().emit("whatsapp:qr");
     getIO().emit("whatsapp:status", { status });
   });
 

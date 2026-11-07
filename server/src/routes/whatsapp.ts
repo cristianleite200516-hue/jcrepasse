@@ -1,6 +1,6 @@
 import { Router } from "express";
 import { z } from "zod";
-import { requireAuth, requireAdmin } from "../middleware/auth";
+import { requireAuth, requireAdmin, AuthedRequest } from "../middleware/auth";
 import {
   initWhatsApp,
   getWhatsAppStatus,
@@ -20,17 +20,18 @@ import { remainingToday, SEND_POLICY } from "../lib/sendPolicy";
 export const whatsappRouter = Router();
 whatsappRouter.use(requireAuth);
 
-whatsappRouter.get("/status", (_req, res) => {
+// Todo mundo vê o status, mas o QR só vai pra admin: quem escaneia passa a controlar o WhatsApp da loja.
+whatsappRouter.get("/status", (req: AuthedRequest, res) => {
   const status = getWhatsAppStatus();
-  res.json({ status, qr: status === "QR" ? getWhatsAppQr() : null });
+  res.json({ status, qr: status === "QR" && req.user?.role === "ADMIN" ? getWhatsAppQr() : null });
 });
 
-whatsappRouter.post("/connect", (_req, res) => {
+whatsappRouter.post("/connect", requireAdmin, (_req, res) => {
   initWhatsApp();
   res.json({ status: getWhatsAppStatus() });
 });
 
-whatsappRouter.post("/import", async (req, res) => {
+whatsappRouter.post("/import", requireAdmin, async (req, res) => {
   const sinceDays = Number(req.body?.sinceDays) || 3;
   try {
     const summary = await importExistingChats(100, sinceDays);

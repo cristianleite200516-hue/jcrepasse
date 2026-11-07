@@ -66,11 +66,17 @@ authRouter.get("/users", requireAuth, requireAdmin, async (_req, res) => {
 
 const updateUserSchema = z.object({
   dailyGoal: z.number().int().min(0).nullable().optional(),
+  role: z.enum(["ADMIN", "AGENT"]).optional(),
 });
 
-authRouter.patch("/users/:id", requireAuth, requireAdmin, async (req, res) => {
+authRouter.patch("/users/:id", requireAuth, requireAdmin, async (req: AuthedRequest, res) => {
   const parsed = updateUserSchema.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
+
+  // Impede o admin de se rebaixar sozinho — o que também garante que sempre sobra um admin.
+  if (parsed.data.role && req.params.id === req.user?.id) {
+    return res.status(400).json({ error: "Você não pode alterar o seu próprio papel" });
+  }
 
   const user = await prisma.user.update({
     where: { id: req.params.id },

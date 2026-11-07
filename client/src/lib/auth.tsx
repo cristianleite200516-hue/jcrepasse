@@ -1,4 +1,4 @@
-import { createContext, useContext, useState, ReactNode } from "react";
+import { createContext, useContext, useEffect, useState, ReactNode } from "react";
 import { api } from "./api";
 
 export interface User {
@@ -21,6 +21,18 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const raw = localStorage.getItem("user");
     return raw ? JSON.parse(raw) : null;
   });
+
+  // O papel pode ter mudado desde o login: atualiza o usuário salvo pra tela refletir o acesso real.
+  useEffect(() => {
+    if (!localStorage.getItem("token")) return;
+    api
+      .get("/auth/me")
+      .then((res) => {
+        localStorage.setItem("user", JSON.stringify(res.data.user));
+        setUser(res.data.user);
+      })
+      .catch(() => {});
+  }, []);
 
   async function login(email: string, password: string) {
     const res = await api.post("/auth/login", { email, password });

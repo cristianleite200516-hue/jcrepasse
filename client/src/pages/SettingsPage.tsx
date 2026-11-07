@@ -1,5 +1,6 @@
 import { FormEvent, useEffect, useState } from "react";
 import { api } from "../lib/api";
+import { useAuth } from "../lib/auth";
 import { NewUserForm } from "../components/NewUserForm";
 import { ChangePasswordForm } from "../components/ChangePasswordForm";
 
@@ -13,6 +14,7 @@ interface UserRow {
 }
 
 export function SettingsPage() {
+  const { user: currentUser } = useAuth();
   const [aiSystemPrompt, setAiSystemPrompt] = useState("");
   const [businessInfo, setBusinessInfo] = useState("");
   const [dailyClosingGoal, setDailyClosingGoal] = useState("");
@@ -51,6 +53,20 @@ export function SettingsPage() {
     const dailyGoal = value.trim() === "" ? null : parseInt(value, 10);
     setUsers((prev) => prev.map((u) => (u.id === userId ? { ...u, dailyGoal } : u)));
     await api.patch(`/auth/users/${userId}`, { dailyGoal });
+  }
+
+  async function updateUserRole(target: UserRow, role: UserRow["role"]) {
+    const label = role === "ADMIN" ? "Administrador" : "Agente";
+    if (!confirm(`Alterar o papel de ${target.name} para ${label}? Vale imediatamente.`)) {
+      await loadUsers();
+      return;
+    }
+    try {
+      await api.patch(`/auth/users/${target.id}`, { role });
+    } catch (err: any) {
+      alert(err?.response?.data?.error || "Não foi possível alterar o papel.");
+    }
+    await loadUsers();
   }
 
   async function handleSubmit(e: FormEvent) {
@@ -211,13 +227,21 @@ export function SettingsPage() {
                   <td className="px-4 py-2 text-slate-900">{u.name}</td>
                   <td className="px-4 py-2 text-slate-500">{u.email}</td>
                   <td className="px-4 py-2">
-                    <span
-                      className={`rounded-full px-2 py-0.5 text-xs font-medium ${
-                        u.role === "ADMIN" ? "bg-purple-500/15 text-purple-700" : "bg-slate-100 text-slate-600"
-                      }`}
-                    >
-                      {u.role === "ADMIN" ? "Administrador" : "Agente"}
-                    </span>
+                    {u.id === currentUser?.id ? (
+                      <span className="rounded-full bg-purple-500/15 px-2 py-0.5 text-xs font-medium text-purple-700">
+                        Administrador
+                      </span>
+                    ) : (
+                      <select
+                        value={u.role}
+                        onChange={(e) => updateUserRole(u, e.target.value as UserRow["role"])}
+                        aria-label={`Papel de ${u.name}`}
+                        className="rounded-md border border-slate-300 bg-white px-2 py-1 text-xs"
+                      >
+                        <option value="ADMIN">Administrador</option>
+                        <option value="AGENT">Agente</option>
+                      </select>
+                    )}
                   </td>
                   <td className="px-4 py-2">
                     <input

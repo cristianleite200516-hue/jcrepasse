@@ -1,5 +1,6 @@
 import { FormEvent, useState } from "react";
 import { api, API_HOST } from "../lib/api";
+import { useAuth } from "../lib/auth";
 import { Lead } from "../lib/types";
 import { SignatureStatus } from "./SignatureStatus";
 
@@ -45,6 +46,8 @@ async function downloadDoc(
 }
 
 export function LeadDocuments({ lead, onUpdated }: { lead: Lead; onUpdated: (lead: Lead) => void }) {
+  const { user } = useAuth();
+  const isAdmin = user?.role === "ADMIN";
   const [open, setOpen] = useState(false);
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
@@ -352,6 +355,7 @@ export function LeadDocuments({ lead, onUpdated }: { lead: Lead; onUpdated: (lea
                 <input
                   value={form.saleOperationalFee}
                   onChange={(e) => set("saleOperationalFee", e.target.value)}
+                  disabled={!isAdmin}
                   placeholder="0"
                   inputMode="decimal"
                   className={`${input} w-full`}
@@ -362,6 +366,7 @@ export function LeadDocuments({ lead, onUpdated }: { lead: Lead; onUpdated: (lea
                 <input
                   value={form.saleAssumedDebts}
                   onChange={(e) => set("saleAssumedDebts", e.target.value)}
+                  disabled={!isAdmin}
                   placeholder="0"
                   inputMode="decimal"
                   className={`${input} w-full`}

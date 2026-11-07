@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { api, API_HOST } from "../lib/api";
+import { useAuth } from "../lib/auth";
 import { socket } from "../lib/socket";
 import { Attachment, AttachmentCategory } from "../lib/types";
 
@@ -14,6 +15,8 @@ function fmtSize(bytes: number) {
 }
 
 export function AttachmentsPanel({ leadId }: { leadId: string }) {
+  const { user } = useAuth();
+  const isAdmin = user?.role === "ADMIN";
   const [attachments, setAttachments] = useState<Attachment[]>([]);
   const [uploading, setUploading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -99,13 +102,15 @@ export function AttachmentsPanel({ leadId }: { leadId: string }) {
             {fotos.map((a) => (
               <div key={a.id} className="group relative aspect-square overflow-hidden rounded-md border border-slate-200">
                 <img src={fileUrl(a)} alt={a.originalName} className="h-full w-full object-cover" />
-                <button
-                  type="button"
-                  onClick={() => handleDelete(a.id)}
-                  className="absolute right-1 top-1 hidden rounded-full bg-black/60 px-1.5 py-0.5 text-[10px] text-white group-hover:block"
-                >
-                  ✕
-                </button>
+                {isAdmin && (
+                  <button
+                    type="button"
+                    onClick={() => handleDelete(a.id)}
+                    className="absolute right-1 top-1 hidden rounded-full bg-black/60 px-1.5 py-0.5 text-[10px] text-white group-hover:block"
+                  >
+                    ✕
+                  </button>
+                )}
               </div>
             ))}
           </div>
@@ -143,9 +148,11 @@ export function AttachmentsPanel({ leadId }: { leadId: string }) {
                 </a>
                 <div className="flex items-center gap-2 text-slate-500">
                   <span>{fmtSize(a.size)}</span>
-                  <button type="button" onClick={() => handleDelete(a.id)} className="hover:text-red-600">
-                    ✕
-                  </button>
+                  {isAdmin && (
+                    <button type="button" onClick={() => handleDelete(a.id)} className="hover:text-red-600">
+                      ✕
+                    </button>
+                  )}
                 </div>
               </div>
             ))}

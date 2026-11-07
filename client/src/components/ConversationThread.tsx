@@ -1,5 +1,6 @@
 import { Fragment, useEffect, useRef, useState } from "react";
 import { API_HOST, api } from "../lib/api";
+import { useAuth } from "../lib/auth";
 import { Message } from "../lib/types";
 
 const DELETED_PLACEHOLDER = "🚫 Mensagem apagada";
@@ -41,6 +42,8 @@ function sameDay(a: string, b: string) {
 }
 
 export function ConversationThread({ messages }: { messages: Message[] }) {
+  const { user } = useAuth();
+  const isAdmin = user?.role === "ADMIN";
   const endRef = useRef<HTMLDivElement>(null);
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [viewingPhotoId, setViewingPhotoId] = useState<string | null>(null);
@@ -119,7 +122,7 @@ export function ConversationThread({ messages }: { messages: Message[] }) {
             {m.attachment?.category === "AUDIO" && (
               <audio controls src={`${API_HOST}/api/attachments/${m.attachment.id}/file`} className="mt-1 h-8 w-full" />
             )}
-            {m.sender !== "LEAD" && m.content !== DELETED_PLACEHOLDER && (
+            {isAdmin && m.sender !== "LEAD" && m.content !== DELETED_PLACEHOLDER && (
               <button
                 onClick={() => deleteMessage(m.id)}
                 disabled={deletingId === m.id}

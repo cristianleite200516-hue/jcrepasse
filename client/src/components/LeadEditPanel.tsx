@@ -1,5 +1,6 @@
 import { FormEvent, useEffect, useState } from "react";
 import { api } from "../lib/api";
+import { useAuth } from "../lib/auth";
 import { Lead, LEAD_CHANNELS, CHANNEL_LABELS } from "../lib/types";
 import { FipeLookup } from "./FipeLookup";
 import { CepLookup } from "./CepLookup";
@@ -17,6 +18,8 @@ function fmtCurrency(n: number) {
 
 export function LeadEditPanel({ lead, onUpdated }: { lead: Lead; onUpdated: (lead: Lead) => void }) {
   const { hidden } = useHideMoney();
+  const { user } = useAuth();
+  const isAdmin = user?.role === "ADMIN";
   const [team, setTeam] = useState<{ id: string; name: string }[]>([]);
   const [form, setForm] = useState({
     name: lead.name ?? "",
@@ -292,12 +295,14 @@ export function LeadEditPanel({ lead, onUpdated }: { lead: Lead; onUpdated: (lea
 
       <div className="rounded-lg border border-slate-200 bg-white p-4 space-y-2">
         <div className="text-sm font-semibold text-slate-600">Financeiro da negociação</div>
+        {!isAdmin && <p className="text-[11px] text-slate-500">Só administradores podem alterar estes valores.</p>}
         <div className="grid grid-cols-2 gap-2">
           <div>
             <label className="block text-[11px] text-slate-500">Valor de compra</label>
             <input
               value={form.purchasePrice}
               onChange={(e) => set("purchasePrice", e.target.value)}
+              disabled={!isAdmin}
               placeholder="0"
               inputMode="decimal"
               className="w-full rounded-md border border-slate-300 px-2 py-1.5 text-sm"
@@ -308,6 +313,7 @@ export function LeadEditPanel({ lead, onUpdated }: { lead: Lead; onUpdated: (lea
             <input
               value={form.salePrice}
               onChange={(e) => set("salePrice", e.target.value)}
+              disabled={!isAdmin}
               placeholder="0"
               inputMode="decimal"
               className="w-full rounded-md border border-slate-300 px-2 py-1.5 text-sm"
@@ -318,6 +324,7 @@ export function LeadEditPanel({ lead, onUpdated }: { lead: Lead; onUpdated: (lea
             <input
               value={form.fineDebts}
               onChange={(e) => set("fineDebts", e.target.value)}
+              disabled={!isAdmin}
               placeholder="0"
               inputMode="decimal"
               className="w-full rounded-md border border-slate-300 px-2 py-1.5 text-sm"
@@ -328,6 +335,7 @@ export function LeadEditPanel({ lead, onUpdated }: { lead: Lead; onUpdated: (lea
             <input
               value={form.ipvaDebt}
               onChange={(e) => set("ipvaDebt", e.target.value)}
+              disabled={!isAdmin}
               placeholder="0"
               inputMode="decimal"
               className="w-full rounded-md border border-slate-300 px-2 py-1.5 text-sm"
@@ -338,6 +346,7 @@ export function LeadEditPanel({ lead, onUpdated }: { lead: Lead; onUpdated: (lea
             <input
               value={form.otherExpenses}
               onChange={(e) => set("otherExpenses", e.target.value)}
+              disabled={!isAdmin}
               placeholder="0"
               inputMode="decimal"
               className="w-full rounded-md border border-slate-300 px-2 py-1.5 text-sm"
@@ -348,6 +357,7 @@ export function LeadEditPanel({ lead, onUpdated }: { lead: Lead; onUpdated: (lea
             <input
               value={form.prepCost}
               onChange={(e) => set("prepCost", e.target.value)}
+              disabled={!isAdmin}
               placeholder="0"
               inputMode="decimal"
               className="w-full rounded-md border border-slate-300 px-2 py-1.5 text-sm"
@@ -384,13 +394,15 @@ export function LeadEditPanel({ lead, onUpdated }: { lead: Lead; onUpdated: (lea
         {suggestedPurchasePrice !== null && (
           <div className="flex items-center justify-between gap-2 rounded-md bg-emerald-500/10 px-3 py-2 text-sm font-medium text-emerald-600">
             <span>Oferta máxima sugerida: {fmtCurrency(suggestedPurchasePrice)}</span>
-            <button
-              type="button"
-              onClick={() => set("purchasePrice", suggestedPurchasePrice.toFixed(2))}
-              className="shrink-0 rounded-md border border-emerald-500/40 px-2 py-1 text-xs font-medium text-emerald-600 hover:bg-emerald-500/10"
-            >
-              Usar
-            </button>
+            {isAdmin && (
+              <button
+                type="button"
+                onClick={() => set("purchasePrice", suggestedPurchasePrice.toFixed(2))}
+                className="shrink-0 rounded-md border border-emerald-500/40 px-2 py-1 text-xs font-medium text-emerald-600 hover:bg-emerald-500/10"
+              >
+                Usar
+              </button>
+            )}
           </div>
         )}
         {marginPct !== null && salePrice <= 0 && (

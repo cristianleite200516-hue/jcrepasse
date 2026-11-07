@@ -265,7 +265,7 @@ conversationsRouter.post("/:leadId/messages", async (req, res) => {
 // Apaga a mensagem no WhatsApp de verdade ("apagar para todos") e marca como apagada aqui no
 // CRM. Só vale pra mensagens que a própria loja mandou (agente ou IA) — não dá pra revogar uma
 // mensagem que o lead mandou, e o WhatsApp tem uma janela de tempo curta pra permitir isso.
-conversationsRouter.delete("/messages/:messageId", async (req, res) => {
+conversationsRouter.delete("/messages/:messageId", requireAdmin, async (req, res) => {
   const message = await prisma.message.findUnique({ where: { id: req.params.messageId } });
   if (!message) return res.status(404).json({ error: "Mensagem não encontrada" });
   if (message.sender === "LEAD") {

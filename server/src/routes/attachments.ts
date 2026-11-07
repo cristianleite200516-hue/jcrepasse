@@ -4,7 +4,7 @@ import fs from "fs";
 import multer from "multer";
 import { z } from "zod";
 import { prisma } from "../lib/prisma";
-import { requireAuth } from "../middleware/auth";
+import { requireAdmin, requireAuth } from "../middleware/auth";
 import { getIO } from "../lib/events";
 
 export const attachmentsRouter = Router();
@@ -86,7 +86,7 @@ attachmentsRouter.get("/attachments/:id/file", async (req, res) => {
   res.sendFile(path.join(UPLOADS_DIR, attachment.filename));
 });
 
-attachmentsRouter.delete("/attachments/:id", requireAuth, async (req, res) => {
+attachmentsRouter.delete("/attachments/:id", requireAuth, requireAdmin, async (req, res) => {
   const attachment = await prisma.attachment.findUnique({ where: { id: req.params.id } });
   if (!attachment) return res.status(404).json({ error: "Anexo não encontrado" });
 

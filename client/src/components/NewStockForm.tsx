@@ -1,5 +1,6 @@
 import { FormEvent, useState } from "react";
 import { api } from "../lib/api";
+import { useAuth } from "../lib/auth";
 
 function numOrNull(v: string): number | null {
   if (v.trim() === "") return null;
@@ -9,6 +10,7 @@ function numOrNull(v: string): number | null {
 
 // A lista é atualizada via o evento de socket "lead:created" emitido pelo backend.
 export function NewStockForm({ onClose }: { onClose: () => void }) {
+  const { user } = useAuth();
   const [name, setName] = useState("");
   const [vehicleBrand, setVehicleBrand] = useState("");
   const [vehicleModel, setVehicleModel] = useState("");
@@ -87,13 +89,15 @@ export function NewStockForm({ onClose }: { onClose: () => void }) {
           className="rounded-md border border-slate-300 px-2 py-1.5 text-sm"
         />
       </div>
-      <input
-        value={purchasePrice}
-        onChange={(e) => setPurchasePrice(e.target.value)}
-        placeholder="Valor de compra (R$)"
-        inputMode="decimal"
-        className="w-full rounded-md border border-slate-300 px-2 py-1.5 text-sm"
-      />
+      {user?.role === "ADMIN" && (
+        <input
+          value={purchasePrice}
+          onChange={(e) => setPurchasePrice(e.target.value)}
+          placeholder="Valor de compra (R$)"
+          inputMode="decimal"
+          className="w-full rounded-md border border-slate-300 px-2 py-1.5 text-sm"
+        />
+      )}
       <textarea
         value={notes}
         onChange={(e) => setNotes(e.target.value)}
