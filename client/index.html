@@ -3,6 +3,12 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <script>
+      // Endereço com ponto no final (jcrepasse.vercel.app.) abre a página, mas o servidor recusa o login.
+      if (location.hostname.endsWith(".")) {
+        location.replace(location.href.replace(location.hostname, location.hostname.slice(0, -1)));
+      }
+    </script>
     <title>VMCA — Vender Meu Carro Agora</title>
     <link
       rel="icon"
