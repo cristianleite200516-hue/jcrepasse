@@ -114,6 +114,10 @@ export function SettingsPage() {
             className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm"
             placeholder="Ex: horário de atendimento, condições de pagamento, região de atuação..."
           />
+          <p className="mt-1 text-xs text-slate-500">
+            Não precisa listar os carros aqui: a IA recebe o Estoque atualizado automaticamente, e carro marcado
+            como vendido sai da lista. O preço vem do valor de venda do veículo.
+          </p>
         </div>
 
         <div className="space-y-2 rounded-lg border border-slate-200 p-3">

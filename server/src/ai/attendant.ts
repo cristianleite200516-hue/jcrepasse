@@ -1,4 +1,5 @@
 import Anthropic from "@anthropic-ai/sdk";
+import { getStockForAi } from "../lib/stockForAi";
 import { prisma } from "../lib/prisma";
 import { getIO } from "../lib/events";
 import { markContactedIfNew, sanitizeAiStatus } from "../lib/leadStatus";
@@ -283,6 +284,9 @@ export async function generateAiReply(
   const { aiSystemPrompt, businessInfo, storeName, storeAddress, aiPaused } = await getSettings();
   if (aiPaused) return null;
 
+  // Lido a cada resposta: quando um carro é marcado como vendido no Estoque, sai da próxima mensagem.
+  const stockInfo = await getStockForAi();
+
   const now = new Date();
   const todayStr = now.toLocaleDateString("pt-BR", {
     timeZone: BR_TIMEZONE,
@@ -310,6 +314,9 @@ lead mencionar (ex: "semana que vem", "amanhã", "dia 20", "hoje ainda").
 
 Informações do negócio:
 ${businessInfo || "(não configurado)"}
+
+${stockInfo}
+
 Endereço da loja (use EXATAMENTE este, nunca invente outro): ${storeAddress ? `${storeName ? storeName + " — " : ""}${storeAddress}` : "não configurado — não ofereça a opção de vir até a loja, só avaliação no endereço do lead"}
 
 Dados atuais do lead: nome=${lead.name ?? "desconhecido"}, status=${lead.status}, score=${lead.score},
