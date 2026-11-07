@@ -125,7 +125,7 @@ function Ranking({ title, leads, field }: { title: string; leads: Lead[]; field:
     for (const l of leads) {
       const name = l[field];
       if (!name) continue;
-      const p = profit(l) ?? 0;
+      const p = l.resaleStatus === "VENDIDO" ? (profit(l) ?? 0) : 0;
       byName[name] ??= { count: 0, lucro: 0 };
       byName[name].count++;
       byName[name].lucro += p;
@@ -200,7 +200,11 @@ export function Profitability() {
     return result;
   }, [leads, sortMode]);
 
-  const withProfit = leads.map(profit).filter((p): p is number => p != null);
+  // Os totais contam só carros vendidos; os demais seguem na tabela com o lucro previsto.
+  const withProfit = leads
+    .filter((l) => l.resaleStatus === "VENDIDO")
+    .map(profit)
+    .filter((p): p is number => p != null);
   const lucroTotal = withProfit.reduce((a, b) => a + b, 0);
   const lucroMedio = withProfit.length > 0 ? lucroTotal / withProfit.length : 0;
   const melhores = withProfit.filter((p) => p > 0).length;

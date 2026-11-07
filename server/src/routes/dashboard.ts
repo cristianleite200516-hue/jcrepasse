@@ -45,7 +45,10 @@ dashboardRouter.get("/stats", async (_req, res) => {
   const respondidos = comMensagem.filter((c) => c.messages[0].sender !== "LEAD").length;
   const aguardando = comMensagem.filter((c) => c.messages[0].sender === "LEAD").length;
 
-  const closedDeals = leads.filter((l) => l.status === "FECHADO" && l.purchasePrice != null && l.salePrice != null);
+  // Lucro só existe depois da revenda: carro em estoque com valor de venda é preço pedido, não negócio feito.
+  const closedDeals = leads.filter(
+    (l) => l.status === "FECHADO" && l.resaleStatus === "VENDIDO" && l.purchasePrice != null && l.salePrice != null
+  );
   const profits = closedDeals.map(
     (l) =>
       (l.salePrice ?? 0) -
@@ -155,9 +158,9 @@ dashboardRouter.get("/monthly", async (req, res) => {
   const [leads, appointments] = await Promise.all([
     prisma.lead.findMany({
       where: {
-        OR: [{ createdAt: { gte: earliest } }, { closedAt: { gte: earliest } }],
+        OR: [{ createdAt: { gte: earliest } }, { closedAt: { gte: earliest } }, { soldAt: { gte: earliest } }],
       },
-      select: { createdAt: true, closedAt: true, salePrice: true, purchasePrice: true, fineDebts: true, ipvaDebt: true, otherExpenses: true, prepCost: true },
+      select: { createdAt: true, closedAt: true, soldAt: true, resaleStatus: true, salePrice: true, purchasePrice: true, fineDebts: true, ipvaDebt: true, otherExpenses: true, prepCost: true },
     }),
     prisma.appointment.findMany({
       where: { scheduledAt: { gte: earliest } },
@@ -179,8 +182,13 @@ dashboardRouter.get("/monthly", async (req, res) => {
       const closedKey = monthKey(lead.closedAt);
       if (byMonth[closedKey]) {
         byMonth[closedKey].fechamentos++;
-        if (lead.salePrice != null) byMonth[closedKey].faturamento += lead.salePrice;
       }
+    }
+
+    // Faturamento entra no mês em que o carro foi vendido, não no mês em que a loja o comprou.
+    if (lead.resaleStatus === "VENDIDO" && lead.soldAt && lead.salePrice != null) {
+      const soldKey = monthKey(lead.soldAt);
+      if (byMonth[soldKey]) byMonth[soldKey].faturamento += lead.salePrice;
     }
   }
 
