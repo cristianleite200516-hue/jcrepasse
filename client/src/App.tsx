@@ -6,6 +6,7 @@ import { Login } from "./pages/Login";
 import { Dashboard } from "./pages/Dashboard";
 import { Analytics } from "./pages/Analytics";
 import { Profitability } from "./pages/Profitability";
+import { Historico } from "./pages/Historico";
 import { Inbox } from "./pages/Inbox";
 import { Estoque } from "./pages/Estoque";
 import { Appointments } from "./pages/Appointments";
@@ -30,6 +31,7 @@ function PrivateRoutes() {
         <Route path="/rotina" element={<Rotina />} />
         {user.role === "ADMIN" && <Route path="/dashboard" element={<Analytics />} />}
         {user.role === "ADMIN" && <Route path="/rentabilidade" element={<Profitability />} />}
+        {user.role === "ADMIN" && <Route path="/historico" element={<Historico />} />}
         {user.role === "ADMIN" && <Route path="/campanhas" element={<Campaigns />} />}
         {user.role === "ADMIN" && <Route path="/duplicados" element={<Duplicates />} />}
         {user.role === "ADMIN" && <Route path="/limpeza" element={<Limpeza />} />}

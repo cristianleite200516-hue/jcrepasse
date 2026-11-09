@@ -89,6 +89,11 @@ export function Layout() {
               </NavLink>
             )}
             {user?.role === "ADMIN" && (
+              <NavLink to="/historico" className={linkClass}>
+                Histórico
+              </NavLink>
+            )}
+            {user?.role === "ADMIN" && (
               <NavLink to="/campanhas" className={linkClass}>
                 Campanhas
               </NavLink>

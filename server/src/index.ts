@@ -25,6 +25,7 @@ import { cockpitRouter } from "./routes/cockpit";
 import { startAutomations } from "./lib/automations";
 import { signaturesRouter } from "./routes/signatures";
 import { attachmentsRouter } from "./routes/attachments";
+import { vehiclesRouter } from "./routes/vehicles";
 import { backfillContactedLeads } from "./lib/leadStatus";
 import { backfillMessageAttachments } from "./lib/attachmentBackfill";
 
@@ -72,6 +73,7 @@ app.use("/api/documents", documentsRouter);
 app.use("/api/daily", dailyRouter);
 app.use("/api/cockpit", cockpitRouter);
 app.use("/api/signatures", signaturesRouter);
+app.use("/api/vehicles", vehiclesRouter);
 app.use("/api", attachmentsRouter);
 
 app.get("/api/health", (_req, res) => res.json({ ok: true }));

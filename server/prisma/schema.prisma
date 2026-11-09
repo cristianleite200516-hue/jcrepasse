@@ -273,3 +273,35 @@ model Settings {
   broadcastSentDay   String?
   broadcastSentCount Int     @default(0)
 }
+
+// Histórico de veículos comprados/vendidos (antes ficava na planilha "Controle de Entrada e Saída").
+// Independente dos leads: muitos carros entram por outras lojas, sem conversa no WhatsApp.
+model Vehicle {
+  id            String    @id @default(cuid())
+  plate         String?
+  model         String
+  km            Int?
+  year          String? // ex: "2016/2017"
+  purchaseDate  DateTime?
+  saleDate      DateTime?
+  purchasePrice Float? // quanto foi pago pelo carro
+  salePrice     Float? // por quanto foi vendido
+  notes         String?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  expenses VehicleExpense[]
+}
+
+// Cada gasto lançado no carro (funilaria, pneu, despachante...). A soma entra no lucro.
+model VehicleExpense {
+  id          String    @id @default(cuid())
+  vehicleId   String
+  vehicle     Vehicle   @relation(fields: [vehicleId], references: [id], onDelete: Cascade)
+  date        DateTime?
+  description String
+  amount      Float
+  createdAt   DateTime  @default(now())
+
+  @@index([vehicleId])
+}
