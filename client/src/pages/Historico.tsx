@@ -61,6 +61,9 @@ function profit(v: Vehicle): number | null {
 // Mês em que o lucro entra: o da venda. Vendido sem data de venda cai no mês da compra.
 const saleMonth = (v: Vehicle) => monthKey(v.saleDate ?? v.purchaseDate);
 const currentMonth = () => new Date().toISOString().slice(0, 7);
+// Salário = 10% do lucro dos carros vendidos no mês (mês com prejuízo não desconta nada).
+const SALARY_RATE = 0.1;
+const salary = (profit: number) => Math.max(0, profit) * SALARY_RATE;
 
 interface MonthSummary {
   key: string;
@@ -430,11 +433,12 @@ export function Historico() {
         </button>
       </div>
 
-      <div className="grid grid-cols-2 gap-3 md:grid-cols-5">
+      <div className="grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-6">
         {card(`Comprado ${periodo}`, sel.paid, "text-slate-900", `${sel.bought} carros`)}
         {card(`Gastos ${periodo}`, sel.expenses, "text-amber-600")}
         {card(`Vendido ${periodo}`, sel.revenue, "text-slate-900", `${sel.sold} vendidos`)}
         {card(`Lucro ${periodo}`, sel.profit, sel.profit >= 0 ? "text-emerald-600" : "text-red-600", "só carros vendidos")}
+        {card(`Seu salário ${periodo}`, month === "todos" ? summaries.reduce((a, s) => a + salary(s.profit), 0) : salary(sel.profit), "text-violet-600", "10% do lucro")}
         {card("Parado em estoque hoje", stockValue, "text-slate-900", `${inStock.length} carros (pago + gastos)`)}
       </div>
 
@@ -530,6 +534,7 @@ export function Historico() {
                   <th className="px-3 py-2 text-right">Vendas</th>
                   <th className="px-3 py-2 text-right">Vendido</th>
                   <th className="px-3 py-2 text-right">Lucro</th>
+                  <th className="px-3 py-2 text-right">Salário (10%)</th>
                 </tr>
               </thead>
               <tbody>
@@ -547,6 +552,9 @@ export function Historico() {
                     <td className="whitespace-nowrap px-3 py-2 text-right">{maskCurrency(hidden, fmt(s.revenue))}</td>
                     <td className={`whitespace-nowrap px-3 py-2 text-right ${s.profit >= 0 ? "text-emerald-600" : "text-red-600"}`}>
                       {maskCurrency(hidden, fmt(s.profit))}
+                    </td>
+                    <td className="whitespace-nowrap px-3 py-2 text-right text-violet-600">
+                      {maskCurrency(hidden, fmt(s.key === "todos" ? summaries.reduce((a, m) => a + salary(m.profit), 0) : salary(s.profit)))}
                     </td>
                   </tr>
                 ))}
