@@ -58,6 +58,36 @@ function profit(v: Vehicle): number | null {
   if (v.salePrice == null || v.purchasePrice == null) return null;
   return v.salePrice - invested(v);
 }
+// Mês em que o lucro entra: o da venda. Vendido sem data de venda cai no mês da compra.
+const saleMonth = (v: Vehicle) => monthKey(v.saleDate ?? v.purchaseDate);
+const currentMonth = () => new Date().toISOString().slice(0, 7);
+
+interface MonthSummary {
+  key: string;
+  bought: number;
+  paid: number;
+  expenses: number;
+  sold: number;
+  revenue: number;
+  profit: number;
+}
+
+function summarize(vehicles: Vehicle[], key: string): MonthSummary {
+  const boughtList = vehicles.filter((v) => monthKey(v.purchaseDate) === key);
+  const soldList = vehicles.filter((v) => isSold(v) && saleMonth(v) === key);
+  return {
+    key,
+    bought: boughtList.length,
+    paid: boughtList.reduce((a, v) => a + (v.purchasePrice ?? 0), 0),
+    expenses: vehicles.reduce(
+      (a, v) => a + v.expenses.filter((e) => monthKey(e.date ?? v.purchaseDate) === key).reduce((s, e) => s + e.amount, 0),
+      0,
+    ),
+    sold: soldList.length,
+    revenue: soldList.reduce((a, v) => a + (v.salePrice ?? 0), 0),
+    profit: soldList.reduce((a, v) => a + (profit(v) ?? 0), 0),
+  };
+}
 
 const inputCls = "w-full rounded border border-slate-300 px-2 py-1 text-sm";
 
@@ -276,7 +306,7 @@ export function Historico() {
   const [openId, setOpenId] = useState<string | null>(null);
   const [search, setSearch] = useState("");
   const [status, setStatus] = useState<StatusFilter>("todos");
-  const [month, setMonth] = useState("todos");
+  const [month, setMonth] = useState(currentMonth);
   const { hidden } = useHideMoney();
 
   useEffect(() => {
@@ -287,26 +317,44 @@ export function Historico() {
       .finally(() => setLoading(false));
   }, []);
 
-  const months = useMemo(() => [...new Set(vehicles.map((v) => monthKey(v.purchaseDate)))].sort().reverse(), [vehicles]);
+  const months = useMemo(() => {
+    const keys = new Set<string>([currentMonth()]);
+    vehicles.forEach((v) => {
+      keys.add(monthKey(v.purchaseDate));
+      if (isSold(v)) keys.add(saleMonth(v));
+    });
+    return [...keys].sort().reverse();
+  }, [vehicles]);
 
+  const summaries = useMemo(() => months.map((m) => summarize(vehicles, m)), [vehicles, months]);
+
+  // No mês escolhido aparecem os carros comprados OU vendidos nele.
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
     return vehicles.filter(
       (v) =>
         (status === "todos" || (status === "vendidos") === isSold(v)) &&
-        (month === "todos" || monthKey(v.purchaseDate) === month) &&
+        (month === "todos" || monthKey(v.purchaseDate) === month || (isSold(v) && saleMonth(v) === month)) &&
         (!q || `${v.plate ?? ""} ${v.model} ${v.notes ?? ""}`.toLowerCase().includes(q)),
     );
   }, [vehicles, search, status, month]);
 
-  const sold = filtered.filter(isSold);
-  const totals = {
-    pago: filtered.reduce((a, v) => a + (v.purchasePrice ?? 0), 0),
-    gastos: filtered.reduce((a, v) => a + spent(v), 0),
-    vendido: sold.reduce((a, v) => a + (v.salePrice ?? 0), 0),
-    lucro: sold.reduce((a, v) => a + (profit(v) ?? 0), 0),
-    estoque: filtered.filter((v) => !isSold(v)).reduce((a, v) => a + invested(v), 0),
-  };
+  const allTime: MonthSummary = summaries.reduce(
+    (a, s) => ({
+      key: "todos",
+      bought: a.bought + s.bought,
+      paid: a.paid + s.paid,
+      expenses: a.expenses + s.expenses,
+      sold: a.sold + s.sold,
+      revenue: a.revenue + s.revenue,
+      profit: a.profit + s.profit,
+    }),
+    { key: "todos", bought: 0, paid: 0, expenses: 0, sold: 0, revenue: 0, profit: 0 },
+  );
+  const sel = month === "todos" ? allTime : summaries.find((s) => s.key === month) ?? summarize(vehicles, month);
+  const inStock = vehicles.filter((v) => !isSold(v));
+  const stockValue = inStock.reduce((a, v) => a + invested(v), 0);
+  const periodo = month === "todos" ? "(tudo)" : "no mês";
 
   function replace(v: Vehicle) {
     setVehicles((prev) => prev.map((x) => (x.id === v.id ? v : x)));
@@ -343,24 +391,34 @@ export function Historico() {
         />
       </div>
 
+      <div className="flex flex-wrap gap-1">
+        {months.map((m) => (
+          <button
+            key={m}
+            onClick={() => setMonth(m)}
+            className={`rounded-md px-3 py-1.5 text-sm font-medium ${month === m ? "bg-emerald-500 text-white" : "bg-white text-slate-600 ring-1 ring-slate-200 hover:bg-slate-100"}`}
+          >
+            {monthLabel(m)}
+          </button>
+        ))}
+        <button
+          onClick={() => setMonth("todos")}
+          className={`rounded-md px-3 py-1.5 text-sm font-medium ${month === "todos" ? "bg-emerald-500 text-white" : "bg-white text-slate-600 ring-1 ring-slate-200 hover:bg-slate-100"}`}
+        >
+          Todos
+        </button>
+      </div>
+
       <div className="grid grid-cols-2 gap-3 md:grid-cols-5">
-        {card("Pago nos carros", totals.pago, "text-slate-900", `${filtered.length} carros`)}
-        {card("Gastos lançados", totals.gastos, "text-amber-600")}
-        {card("Vendido", totals.vendido, "text-slate-900", `${sold.length} vendidos`)}
-        {card("Lucro dos vendidos", totals.lucro, totals.lucro >= 0 ? "text-emerald-600" : "text-red-600")}
-        {card("Parado em estoque", totals.estoque, "text-slate-900", `${filtered.length - sold.length} carros (pago + gastos)`)}
+        {card(`Comprado ${periodo}`, sel.paid, "text-slate-900", `${sel.bought} carros`)}
+        {card(`Gastos ${periodo}`, sel.expenses, "text-amber-600")}
+        {card(`Vendido ${periodo}`, sel.revenue, "text-slate-900", `${sel.sold} vendidos`)}
+        {card(`Lucro ${periodo}`, sel.profit, sel.profit >= 0 ? "text-emerald-600" : "text-red-600", "só carros vendidos")}
+        {card("Parado em estoque hoje", stockValue, "text-slate-900", `${inStock.length} carros (pago + gastos)`)}
       </div>
 
       <div className="flex flex-wrap gap-2">
         <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Buscar placa ou modelo" className="min-w-48 flex-1 rounded-md border border-slate-300 px-2 py-1.5 text-sm" />
-        <select value={month} onChange={(e) => setMonth(e.target.value)} className="rounded-md border border-slate-300 px-2 py-1.5 text-sm">
-          <option value="todos">Todos os meses</option>
-          {months.map((m) => (
-            <option key={m} value={m}>
-              {monthLabel(m)}
-            </option>
-          ))}
-        </select>
         <select value={status} onChange={(e) => setStatus(e.target.value as StatusFilter)} className="rounded-md border border-slate-300 px-2 py-1.5 text-sm">
           <option value="todos">Todos</option>
           <option value="estoque">Em estoque</option>
@@ -399,6 +457,7 @@ export function Historico() {
               {filtered.map((v) => {
                 const p = profit(v);
                 const open = openId === v.id;
+                const otherMonth = month !== "todos" && isSold(v) && saleMonth(v) !== month;
                 return [
                   <tr key={v.id} onClick={() => setOpenId(open ? null : v.id)} className={`cursor-pointer border-t border-slate-100 hover:bg-slate-50 ${open ? "bg-slate-50" : ""}`}>
                     <td className="whitespace-nowrap px-3 py-2 font-mono text-xs">{v.plate ?? "—"}</td>
@@ -414,8 +473,12 @@ export function Historico() {
                     <td className="whitespace-nowrap px-3 py-2 text-right">{v.purchasePrice != null ? maskCurrency(hidden, fmt(v.purchasePrice)) : "—"}</td>
                     <td className="whitespace-nowrap px-3 py-2 text-right text-amber-700">{v.expenses.length ? maskCurrency(hidden, fmt(spent(v))) : "—"}</td>
                     <td className="whitespace-nowrap px-3 py-2 text-right">{v.salePrice != null ? maskCurrency(hidden, fmt(v.salePrice)) : "—"}</td>
-                    <td className={`whitespace-nowrap px-3 py-2 text-right font-medium ${p == null ? "text-slate-400" : p >= 0 ? "text-emerald-600" : "text-red-600"}`}>
+                    <td
+                      title={otherMonth ? `Lucro entra em ${monthLabel(saleMonth(v))}` : undefined}
+                      className={`whitespace-nowrap px-3 py-2 text-right font-medium ${p == null || otherMonth ? "text-slate-400" : p >= 0 ? "text-emerald-600" : "text-red-600"}`}
+                    >
                       {p != null ? maskCurrency(hidden, fmt(p)) : "—"}
+                      {otherMonth && <div className="text-[10px] font-normal">entra em {monthLabel(saleMonth(v)).split(" ")[0].toLowerCase()}</div>}
                     </td>
                   </tr>,
                   open && (
@@ -429,6 +492,46 @@ export function Historico() {
               })}
             </tbody>
           </table>
+        </div>
+      )}
+
+      {!loading && !error && (
+        <div>
+          <div className="mb-2 text-xs font-semibold uppercase text-slate-500">Resumo por mês</div>
+          <div className="overflow-x-auto rounded-lg border border-slate-200 bg-white">
+            <table className="w-full text-sm">
+              <thead className="bg-slate-50 text-left text-xs uppercase text-slate-500">
+                <tr>
+                  <th className="px-3 py-2">Mês</th>
+                  <th className="px-3 py-2 text-right">Compras</th>
+                  <th className="px-3 py-2 text-right">Pago</th>
+                  <th className="px-3 py-2 text-right">Gastos</th>
+                  <th className="px-3 py-2 text-right">Vendas</th>
+                  <th className="px-3 py-2 text-right">Vendido</th>
+                  <th className="px-3 py-2 text-right">Lucro</th>
+                </tr>
+              </thead>
+              <tbody>
+                {[...summaries, allTime].map((s) => (
+                  <tr
+                    key={s.key}
+                    onClick={() => setMonth(s.key)}
+                    className={`cursor-pointer border-t border-slate-100 hover:bg-slate-50 ${s.key === "todos" ? "font-semibold" : ""} ${month === s.key ? "bg-emerald-50" : ""}`}
+                  >
+                    <td className="px-3 py-2">{s.key === "todos" ? "Total" : monthLabel(s.key)}</td>
+                    <td className="px-3 py-2 text-right">{s.bought}</td>
+                    <td className="whitespace-nowrap px-3 py-2 text-right">{maskCurrency(hidden, fmt(s.paid))}</td>
+                    <td className="whitespace-nowrap px-3 py-2 text-right text-amber-700">{maskCurrency(hidden, fmt(s.expenses))}</td>
+                    <td className="px-3 py-2 text-right">{s.sold}</td>
+                    <td className="whitespace-nowrap px-3 py-2 text-right">{maskCurrency(hidden, fmt(s.revenue))}</td>
+                    <td className={`whitespace-nowrap px-3 py-2 text-right ${s.profit >= 0 ? "text-emerald-600" : "text-red-600"}`}>
+                      {maskCurrency(hidden, fmt(s.profit))}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
         </div>
       )}
     </div>
