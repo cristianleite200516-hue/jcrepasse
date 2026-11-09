@@ -91,6 +91,29 @@ function summarize(vehicles: Vehicle[], key: string): MonthSummary {
 
 const inputCls = "w-full rounded border border-slate-300 px-2 py-1 text-sm";
 
+// Confirmação dentro da tela: o confirm() do navegador é bloqueado em alguns navegadores
+// embutidos (responde "não" sozinho) e aí nada era apagado.
+function ConfirmButton({ label, ask, onConfirm, className }: { label: string; ask: string; onConfirm: () => void; className: string }) {
+  const [armed, setArmed] = useState(false);
+  if (!armed)
+    return (
+      <button type="button" onClick={() => setArmed(true)} className={className} title={ask}>
+        {label}
+      </button>
+    );
+  return (
+    <span className="inline-flex items-center gap-1 text-xs">
+      <span className="text-slate-600">{ask}</span>
+      <button type="button" onClick={() => { setArmed(false); onConfirm(); }} className="rounded bg-red-600 px-2 py-0.5 font-medium text-white hover:bg-red-700">
+        Sim, apagar
+      </button>
+      <button type="button" onClick={() => setArmed(false)} className="rounded px-2 py-0.5 text-slate-600 hover:bg-slate-100">
+        Não
+      </button>
+    </span>
+  );
+}
+
 function NewVehicleForm({ onCreated }: { onCreated: (v: Vehicle) => void }) {
   const [open, setOpen] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -191,9 +214,12 @@ function VehicleDetail({ v, hidden, onChange, onDelete }: { v: Vehicle; hidden: 
   }
 
   async function removeExpense(id: string) {
-    if (!confirm("Apagar este gasto?")) return;
-    const res = await api.delete(`/vehicles/${v.id}/expenses/${id}`);
-    onChange(res.data);
+    try {
+      const res = await api.delete(`/vehicles/${v.id}/expenses/${id}`);
+      onChange(res.data);
+    } catch {
+      alert("Não consegui apagar o gasto. Tente de novo.");
+    }
   }
 
   const text = (key: "plate" | "model" | "year" | "notes", label: string, wide = false) => (
@@ -266,9 +292,7 @@ function VehicleDetail({ v, hidden, onChange, onDelete }: { v: Vehicle; hidden: 
               <span className="w-20 shrink-0 text-slate-500">{fmtDate(e.date)}</span>
               <span className="flex-1">{e.description}</span>
               <span className="font-medium">{maskCurrency(hidden, fmt(e.amount))}</span>
-              <button onClick={() => removeExpense(e.id)} className="text-slate-400 hover:text-red-600" title="Apagar gasto">
-                ✕
-              </button>
+              <ConfirmButton label="✕" ask="Apagar gasto?" onConfirm={() => removeExpense(e.id)} className="text-slate-400 hover:text-red-600" />
             </div>
           ))}
         </div>
@@ -291,9 +315,7 @@ function VehicleDetail({ v, hidden, onChange, onDelete }: { v: Vehicle; hidden: 
             </span>
           )}
         </div>
-        <button onClick={onDelete} className="text-xs text-red-600 hover:underline">
-          Apagar carro
-        </button>
+        <ConfirmButton label="Apagar carro" ask="Apagar o carro e todos os gastos? Não dá pra desfazer." onConfirm={onDelete} className="text-xs text-red-600 hover:underline" />
       </div>
     </div>
   );
@@ -361,7 +383,6 @@ export function Historico() {
   }
 
   async function remove(v: Vehicle) {
-    if (!confirm(`Apagar ${v.plate ?? ""} ${v.model} e todos os gastos dele? Não dá pra desfazer.`)) return;
     try {
       await api.delete(`/vehicles/${v.id}`);
       setVehicles((prev) => prev.filter((x) => x.id !== v.id));
