@@ -8,7 +8,10 @@ import { requireAdmin, requireAuth } from "../middleware/auth";
 export const vehiclesRouter = Router();
 vehiclesRouter.use(requireAuth, requireAdmin);
 
-const include = { expenses: { orderBy: [{ date: "asc" as const }, { createdAt: "asc" as const }] } };
+const include = {
+  expenses: { orderBy: [{ date: "asc" as const }, { createdAt: "asc" as const }] },
+  lead: { select: { id: true, name: true } },
+};
 
 // "" ou null limpa a data; "AAAA-MM-DD" vira meio-dia UTC pra não pular de dia no fuso do Brasil.
 function toDate(v: string | null | undefined) {
@@ -82,7 +85,8 @@ vehiclesRouter.delete("/:id", async (req, res) => {
 
 const expenseSchema = z.object({
   date: z.string().nullable().optional(),
-  description: z.string().min(1),
+  description: z.string().optional(),
+  category: z.string().nullable().optional(),
   amount: z.number(),
 });
 
@@ -95,7 +99,8 @@ vehiclesRouter.post("/:id/expenses", async (req, res) => {
     data: {
       vehicleId: req.params.id,
       date: toDate(parsed.data.date) ?? null,
-      description: parsed.data.description.trim(),
+      description: parsed.data.description?.trim() || parsed.data.category || "Gasto",
+      category: parsed.data.category || null,
       amount: parsed.data.amount,
     },
   });

@@ -1,13 +1,18 @@
 import { FormEvent, useEffect, useMemo, useState } from "react";
+import { Link } from "react-router-dom";
 import { api } from "../lib/api";
+import { downloadCsv } from "../lib/csv";
 import { maskCurrency, useHideMoney } from "../lib/useHideMoney";
 
 interface Expense {
   id: string;
   date: string | null;
   description: string;
+  category: string | null;
   amount: number;
 }
+
+const CATEGORIES = ["Funilaria", "Mecânica", "Despachante", "Pneu", "Lavagem/Estética", "Preparo", "IPVA", "Multas", "Combustível", "Outros"];
 
 interface Vehicle {
   id: string;
@@ -20,6 +25,8 @@ interface Vehicle {
   purchasePrice: number | null;
   salePrice: number | null;
   notes: string | null;
+  source: string;
+  lead: { id: string; name: string | null } | null;
   expenses: Expense[];
 }
 
@@ -184,6 +191,7 @@ function NewVehicleForm({ onCreated }: { onCreated: (v: Vehicle) => void }) {
 
 function VehicleDetail({ v, hidden, onChange, onDelete }: { v: Vehicle; hidden: boolean; onChange: (v: Vehicle) => void; onDelete: () => void }) {
   const [desc, setDesc] = useState("");
+  const [category, setCategory] = useState(CATEGORIES[0]);
   const [amount, setAmount] = useState("");
   const [date, setDate] = useState(new Date().toISOString().slice(0, 10));
 
@@ -207,7 +215,7 @@ function VehicleDetail({ v, hidden, onChange, onDelete }: { v: Vehicle; hidden: 
     const n = parseMoney(amount);
     if (n == null || n === undefined) return alert("Informe o valor do gasto.");
     try {
-      const res = await api.post(`/vehicles/${v.id}/expenses`, { description: desc, amount: n, date: date || null });
+      const res = await api.post(`/vehicles/${v.id}/expenses`, { description: desc || category, category, amount: n, date: date || null });
       onChange(res.data);
       setDesc("");
       setAmount("");
@@ -262,6 +270,15 @@ function VehicleDetail({ v, hidden, onChange, onDelete }: { v: Vehicle; hidden: 
   const p = profit(v);
   return (
     <div className="space-y-4 bg-slate-50 p-4">
+      {v.lead && (
+        <div className="text-xs text-slate-500">
+          Veio do lead{" "}
+          <Link to={`/leads/${v.lead.id}`} className="font-medium text-emerald-700 hover:underline">
+            {v.lead.name || "abrir lead"}
+          </Link>
+          {v.source === "lead" ? " — valor pago, venda e custos acompanham o lead." : ""}
+        </div>
+      )}
       <div className="grid grid-cols-2 gap-2 md:grid-cols-4">
         {text("plate", "Placa")}
         {text("model", "Modelo")}
@@ -293,7 +310,10 @@ function VehicleDetail({ v, hidden, onChange, onDelete }: { v: Vehicle; hidden: 
           {v.expenses.map((e) => (
             <div key={e.id} className="flex items-center gap-3 border-b border-slate-100 px-3 py-1.5 text-sm last:border-0">
               <span className="w-20 shrink-0 text-slate-500">{fmtDate(e.date)}</span>
-              <span className="flex-1">{e.description}</span>
+              <span className="w-28 shrink-0">
+                <span className="rounded bg-amber-50 px-1.5 py-0.5 text-xs text-amber-800">{e.category ?? "Outros"}</span>
+              </span>
+              <span className="flex-1 text-slate-600">{e.description !== e.category ? e.description : ""}</span>
               <span className="font-medium">{maskCurrency(hidden, fmt(e.amount))}</span>
               <ConfirmButton label="✕" ask="Apagar gasto?" onConfirm={() => removeExpense(e.id)} className="text-slate-400 hover:text-red-600" />
             </div>
@@ -301,7 +321,12 @@ function VehicleDetail({ v, hidden, onChange, onDelete }: { v: Vehicle; hidden: 
         </div>
         <form onSubmit={addExpense} className="mt-2 flex flex-wrap gap-2">
           <input type="date" value={date} onChange={(e) => setDate(e.target.value)} className="rounded border border-slate-300 px-2 py-1 text-sm" />
-          <input value={desc} onChange={(e) => setDesc(e.target.value)} required placeholder="O que foi gasto (ex: funilaria, pneu)" className="min-w-48 flex-1 rounded border border-slate-300 px-2 py-1 text-sm" />
+          <select value={category} onChange={(e) => setCategory(e.target.value)} className="rounded border border-slate-300 px-2 py-1 text-sm">
+            {CATEGORIES.map((c) => (
+              <option key={c}>{c}</option>
+            ))}
+          </select>
+          <input value={desc} onChange={(e) => setDesc(e.target.value)} placeholder="Detalhe (opcional)" className="min-w-40 flex-1 rounded border border-slate-300 px-2 py-1 text-sm" />
           <input value={amount} onChange={(e) => setAmount(e.target.value)} required placeholder="Valor" inputMode="decimal" className="w-28 rounded border border-slate-300 px-2 py-1 text-sm" />
           <button className="rounded-md bg-slate-800 px-3 py-1 text-sm font-medium text-white hover:bg-slate-900">Lançar gasto</button>
         </form>
@@ -381,6 +406,43 @@ export function Historico() {
   const stockValue = inStock.reduce((a, v) => a + invested(v), 0);
   const periodo = month === "todos" ? "(tudo)" : "no mês";
 
+  // Gastos do período somados por tipo (mesma regra de mês dos cartões: data do gasto).
+  const byCategory = useMemo(() => {
+    const totals = new Map<string, number>();
+    vehicles.forEach((v) =>
+      v.expenses.forEach((e) => {
+        if (month !== "todos" && monthKey(e.date ?? v.purchaseDate) !== month) return;
+        const c = e.category ?? "Outros";
+        totals.set(c, (totals.get(c) ?? 0) + e.amount);
+      }),
+    );
+    return [...totals.entries()].sort((a, b) => b[1] - a[1]);
+  }, [vehicles, month]);
+
+  function exportExcel() {
+    const num = (n: number | null) => (n == null ? "" : n.toFixed(2).replace(".", ","));
+    const rows = filtered.map((v) => ({
+      Placa: v.plate ?? "",
+      Modelo: v.model,
+      Ano: v.year ?? "",
+      Km: v.km ?? "",
+      "Data compra": v.purchaseDate ? fmtDate(v.purchaseDate) : "",
+      "Data venda": v.saleDate ? fmtDate(v.saleDate) : "",
+      Pago: num(v.purchasePrice),
+      Gastos: num(spent(v)),
+      "Total investido": num(invested(v)),
+      "Vendido por": num(v.salePrice),
+      Lucro: num(profit(v)),
+      Situação: isSold(v) ? "Vendido" : "Em estoque",
+      "Detalhe dos gastos": v.expenses
+        .map((e) => `${e.category ?? "Outros"}${e.description !== e.category ? ` (${e.description})` : ""}: ${num(e.amount)}`)
+        .join(" | "),
+      Observação: v.notes ?? "",
+    }));
+    if (rows.length === 0) return alert("Nenhum carro para exportar.");
+    downloadCsv(`historico-${month === "todos" ? "completo" : month}.csv`, rows);
+  }
+
   function replace(v: Vehicle) {
     setVehicles((prev) => prev.map((x) => (x.id === v.id ? v : x)));
   }
@@ -407,12 +469,17 @@ export function Historico() {
     <div className="space-y-4">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <h1 className="text-lg font-bold text-slate-900">Histórico de Veículos</h1>
-        <NewVehicleForm
-          onCreated={(v) => {
-            setVehicles((prev) => [v, ...prev]);
-            setOpenId(v.id);
-          }}
-        />
+        <div className="flex flex-wrap items-start gap-2">
+          <button onClick={exportExcel} className="rounded-md px-3 py-1.5 text-sm font-medium text-slate-700 ring-1 ring-slate-300 hover:bg-slate-100">
+            Exportar Excel
+          </button>
+          <NewVehicleForm
+            onCreated={(v) => {
+              setVehicles((prev) => [v, ...prev]);
+              setOpenId(v.id);
+            }}
+          />
+        </div>
       </div>
 
       <div className="flex flex-wrap gap-1">
@@ -441,6 +508,17 @@ export function Historico() {
         {card(`Seu salário ${periodo}`, month === "todos" ? summaries.reduce((a, s) => a + salary(s.profit), 0) : salary(sel.profit), "text-violet-600", "10% do lucro")}
         {card("Parado em estoque hoje", stockValue, "text-slate-900", `${inStock.length} carros (pago + gastos)`)}
       </div>
+
+      {byCategory.length > 0 && (
+        <div className="flex flex-wrap items-center gap-2 text-sm">
+          <span className="text-xs font-semibold uppercase text-slate-500">Gastos por tipo {periodo}:</span>
+          {byCategory.map(([c, total]) => (
+            <span key={c} className="rounded-full bg-amber-50 px-2.5 py-0.5 text-amber-800 ring-1 ring-amber-200">
+              {c}: <b>{maskCurrency(hidden, fmt(total))}</b>
+            </span>
+          ))}
+        </div>
+      )}
 
       <div className="flex flex-wrap gap-2">
         <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Buscar placa ou modelo" className="min-w-48 flex-1 rounded-md border border-slate-300 px-2 py-1.5 text-sm" />

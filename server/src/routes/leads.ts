@@ -7,6 +7,7 @@ import { prisma } from "../lib/prisma";
 import { requireAuth, requireAdmin, AuthedRequest } from "../middleware/auth";
 import { getIO } from "../lib/events";
 import { generateAdCopy } from "../ai/attendant";
+import { isBought, syncVehicleFromLead } from "../lib/vehicleSync";
 
 // Fica dentro de .wwebjs_auth (montado no volume persistente do Railway) de propósito: uma
 // pasta "uploads" separada, fora do volume, é recriada vazia a cada deploy — as fotos e
@@ -408,6 +409,13 @@ leadsRouter.patch("/:id", async (req: AuthedRequest, res) => {
     }
   }
 
+  // Compra fechada entra sozinha no Histórico de Veículos (e se atualiza junto com o lead).
+  try {
+    await syncVehicleFromLead(lead.id, isBought(before));
+  } catch (err) {
+    console.error("Erro ao sincronizar lead com o Histórico de Veículos:", err);
+  }
+
   getIO().emit("lead:updated", lead);
   res.json(lead);
 });
@@ -489,6 +497,12 @@ leadsRouter.post("/stock", async (req: AuthedRequest, res) => {
       conversation: { create: {} },
     },
   });
+
+  try {
+    await syncVehicleFromLead(lead.id, false);
+  } catch (err) {
+    console.error("Erro ao sincronizar carro do estoque com o Histórico de Veículos:", err);
+  }
 
   getIO().emit("lead:created", lead);
   res.status(201).json(lead);

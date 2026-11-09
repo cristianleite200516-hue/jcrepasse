@@ -146,6 +146,7 @@ model Lead {
   reminders    Reminder[]
   auditLogs    AuditLog[]
   signatures   DocumentSignature[]
+  vehicle      Vehicle? // carro no Histórico de Veículos, criado quando a compra fecha
 }
 
 // Assinatura eletrônica simples (não é assinatura digital certificada ICP-Brasil): o
@@ -287,6 +288,9 @@ model Vehicle {
   purchasePrice Float? // quanto foi pago pelo carro
   salePrice     Float? // por quanto foi vendido
   notes         String?
+  source        String    @default("manual") // manual | planilha | lead
+  leadId        String?   @unique // lead de onde o carro veio (compra fechada no CRM)
+  lead          Lead?     @relation(fields: [leadId], references: [id], onDelete: SetNull)
   createdAt     DateTime  @default(now())
   updatedAt     DateTime  @updatedAt
 
@@ -300,6 +304,7 @@ model VehicleExpense {
   vehicle     Vehicle   @relation(fields: [vehicleId], references: [id], onDelete: Cascade)
   date        DateTime?
   description String
+  category    String? // Funilaria, Mecânica, Despachante...
   amount      Float
   createdAt   DateTime  @default(now())
 
