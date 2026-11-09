@@ -58,7 +58,7 @@ authRouter.post("/users", requireAuth, requireAdmin, async (req, res) => {
 
 authRouter.get("/users", requireAuth, requireAdmin, async (_req, res) => {
   const users = await prisma.user.findMany({
-    select: { id: true, name: true, email: true, role: true, dailyGoal: true, createdAt: true },
+    select: { id: true, name: true, email: true, role: true, dailyGoal: true, isOwner: true, createdAt: true },
     orderBy: { createdAt: "asc" },
   });
   res.json(users);
@@ -78,10 +78,18 @@ authRouter.patch("/users/:id", requireAuth, requireAdmin, async (req: AuthedRequ
     return res.status(400).json({ error: "Você não pode alterar o seu próprio papel" });
   }
 
+  // O admin principal (dono) nunca perde o papel de administrador, nem por outro admin.
+  if (parsed.data.role && parsed.data.role !== "ADMIN") {
+    const target = await prisma.user.findUnique({ where: { id: req.params.id }, select: { isOwner: true } });
+    if (target?.isOwner) {
+      return res.status(403).json({ error: "Esse é o administrador principal: o papel dele não pode ser alterado" });
+    }
+  }
+
   const user = await prisma.user.update({
     where: { id: req.params.id },
     data: parsed.data,
-    select: { id: true, name: true, email: true, role: true, dailyGoal: true, createdAt: true },
+    select: { id: true, name: true, email: true, role: true, dailyGoal: true, isOwner: true, createdAt: true },
   });
   res.json(user);
 });

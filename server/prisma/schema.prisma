@@ -18,6 +18,7 @@ model User {
   passwordHash String
   role         String   @default("AGENT")
   dailyGoal    Int? // meta individual de fechamentos por dia, mostrada no Painel do dia
+  isOwner      Boolean  @default(false) // admin principal (dono): ninguém tira o papel de administrador dele
   createdAt    DateTime @default(now())
 
   assignedLeads Lead[]

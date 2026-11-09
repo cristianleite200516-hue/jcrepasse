@@ -11,6 +11,7 @@ interface UserRow {
   email: string;
   role: "ADMIN" | "AGENT";
   dailyGoal: number | null;
+  isOwner?: boolean;
   createdAt: string;
 }
 
@@ -232,7 +233,11 @@ export function SettingsPage() {
                   <td className="px-4 py-2 text-slate-900">{u.name}</td>
                   <td className="px-4 py-2 text-slate-500">{u.email}</td>
                   <td className="px-4 py-2">
-                    {u.id === currentUser?.id ? (
+                    {u.isOwner ? (
+                      <span className="rounded-full bg-amber-500/15 px-2 py-0.5 text-xs font-medium text-amber-700" title="Administrador principal: ninguém pode tirar o papel de administrador">
+                        Administrador principal
+                      </span>
+                    ) : u.id === currentUser?.id ? (
                       <span className="rounded-full bg-purple-500/15 px-2 py-0.5 text-xs font-medium text-purple-700">
                         Administrador
                       </span>
