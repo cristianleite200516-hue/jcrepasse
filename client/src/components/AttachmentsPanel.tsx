@@ -1,3 +1,4 @@
+import { askConfirm } from "../lib/askConfirm";
 import { useEffect, useRef, useState } from "react";
 import { api, API_HOST } from "../lib/api";
 import { useAuth } from "../lib/auth";
@@ -64,7 +65,7 @@ export function AttachmentsPanel({ leadId }: { leadId: string }) {
   }
 
   async function handleDelete(id: string) {
-    if (!confirm("Remover este arquivo?")) return;
+    if (!await askConfirm("Remover este arquivo?")) return;
     await api.delete(`/attachments/${id}`);
   }
 

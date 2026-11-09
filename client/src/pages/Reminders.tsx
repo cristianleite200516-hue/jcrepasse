@@ -1,3 +1,4 @@
+import { askConfirm } from "../lib/askConfirm";
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { api } from "../lib/api";
@@ -54,7 +55,7 @@ export function Reminders() {
   }
 
   async function remove(id: string) {
-    if (!confirm("Excluir este lembrete?")) return;
+    if (!await askConfirm("Excluir este lembrete?")) return;
     await api.delete(`/reminders/${id}`);
   }
 

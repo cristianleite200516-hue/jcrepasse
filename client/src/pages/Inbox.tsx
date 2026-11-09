@@ -1,3 +1,4 @@
+import { askConfirm } from "../lib/askConfirm";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import { api } from "../lib/api";
@@ -283,7 +284,7 @@ export function Inbox() {
     const text = bulkText.trim();
     if (ids.length === 0 || !text) return;
     if (
-      !confirm(
+      !await askConfirm(
         `Enviar esta mensagem pra ${ids.length} lead(s) (${bulkListLabel})?\n\n"${text}"\n\nVai uma por uma, com 4s de intervalo (~${Math.ceil((ids.length * 4) / 60)} min).`
       )
     )

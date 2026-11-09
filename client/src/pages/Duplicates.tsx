@@ -1,3 +1,4 @@
+import { askConfirm } from "../lib/askConfirm";
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { api } from "../lib/api";
@@ -38,7 +39,7 @@ export function Duplicates() {
   }, []);
 
   async function removeLead(id: string) {
-    if (!confirm("Excluir esse lead (e toda a conversa dele)? Não tem como desfazer.")) return;
+    if (!await askConfirm("Excluir esse lead (e toda a conversa dele)? Não tem como desfazer.")) return;
     await api.delete(`/leads/${id}`);
     setGroups((prev) => prev.map((g) => g.filter((l) => l.id !== id)).filter((g) => g.length > 1));
   }

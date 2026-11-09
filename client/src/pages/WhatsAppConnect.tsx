@@ -1,3 +1,4 @@
+import { askConfirm } from "../lib/askConfirm";
 import { useEffect, useState } from "react";
 import { api } from "../lib/api";
 import { socket } from "../lib/socket";
@@ -139,7 +140,7 @@ export function WhatsAppConnect() {
   async function reengage() {
     if (!preview || preview.length === 0) return;
     if (
-      !confirm(
+      !await askConfirm(
         `Enviar mensagem de reengajamento da IA para ${preview.length} lead(s)? As mensagens saem aos poucos (intervalo de 25 a 75 s, até o limite diário) pra não parecer robô.`
       )
     )
@@ -377,7 +378,7 @@ function AiReenableTool() {
   }
 
   async function apply() {
-    if (!preview || !confirm(`Religar a IA em ${preview.toReenable.length} conversa(s)?`)) return;
+    if (!preview || !await askConfirm(`Religar a IA em ${preview.toReenable.length} conversa(s)?`)) return;
     setApplying(true);
     setError(null);
     try {

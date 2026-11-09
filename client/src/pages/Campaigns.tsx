@@ -1,3 +1,4 @@
+import { askConfirm } from "../lib/askConfirm";
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { api } from "../lib/api";
@@ -75,7 +76,7 @@ function CampaignResults({ refreshKey }: { refreshKey: number }) {
   const movable = data?.responders.filter((r) => r.status !== toStatus && !PROTECTED.includes(r.status)) ?? [];
 
   async function moveResponders() {
-    if (!confirm(`Mover ${movable.length} lead(s) que responderam para "${STATUS_LABELS[toStatus]}"?`)) return;
+    if (!await askConfirm(`Mover ${movable.length} lead(s) que responderam para "${STATUS_LABELS[toStatus]}"?`)) return;
     setMoving(true);
     setError(null);
     try {
@@ -271,7 +272,7 @@ export function Campaigns() {
       return;
     }
     if (
-      !confirm(
+      !await askConfirm(
         `Confirma o disparo dessa mensagem para ${count ?? "?"} leads? Isso vai enviar mensagens reais pelo WhatsApp, aos poucos (25 a 75 s entre cada uma, até o limite de hoje).`
       )
     )

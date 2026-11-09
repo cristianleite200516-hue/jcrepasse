@@ -1,3 +1,4 @@
+import { askConfirm } from "../lib/askConfirm";
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { api } from "../lib/api";
@@ -54,7 +55,7 @@ function ArchiveStalled({ summary, onDays, onDone }: { summary: Summary; onDays:
   const { count, items } = summary.archivable;
 
   async function apply() {
-    if (!window.confirm(`Mover ${count} lead(s) parados há ${summary.days}+ dias para Perdido? Dá pra mover de volta depois.`)) return;
+    if (!await askConfirm(`Mover ${count} lead(s) parados há ${summary.days}+ dias para Perdido? Dá pra mover de volta depois.`)) return;
     setBusy(true);
     try {
       const res = await api.post("/cockpit/cleanup/archive-stalled", { days: summary.days });
@@ -132,7 +133,7 @@ function LostLeads({ onDone }: { onDone: () => void }) {
   if (!items) return null;
 
   async function deleteSelected() {
-    if (!window.confirm(`EXCLUIR ${selected.size} lead(s) perdido(s) com conversa, anexos e histórico? Isso não tem volta.`)) return;
+    if (!await askConfirm(`EXCLUIR ${selected.size} lead(s) perdido(s) com conversa, anexos e histórico? Isso não tem volta.`)) return;
     setBusy(true);
     const ids = [...selected];
     let ok = 0;

@@ -1,3 +1,4 @@
+import { askConfirm } from "../lib/askConfirm";
 import { useEffect, useMemo, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { api } from "../lib/api";
@@ -123,7 +124,7 @@ export function SoldLeads() {
   if (!items || items.length === 0) return null;
 
   async function deleteSelected() {
-    if (!window.confirm(`Excluir ${selected.size} lead(s) com conversa, anexos e histórico? Isso não tem volta.`)) return;
+    if (!await askConfirm(`Excluir ${selected.size} lead(s) com conversa, anexos e histórico? Isso não tem volta.`)) return;
     setBusy(true);
     let ok = 0;
     for (const id of selected) {

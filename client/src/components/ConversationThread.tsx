@@ -1,3 +1,4 @@
+import { askConfirm } from "../lib/askConfirm";
 import { Fragment, useEffect, useRef, useState } from "react";
 import { API_HOST, api } from "../lib/api";
 import { useAuth } from "../lib/auth";
@@ -61,7 +62,7 @@ export function ConversationThread({ messages }: { messages: Message[] }) {
 
   async function deleteMessage(id: string) {
     if (
-      !confirm(
+      !await askConfirm(
         "Apagar essa mensagem pra todos no WhatsApp? Só funciona se ela ainda estiver dentro da janela de tempo que o WhatsApp permite revogar."
       )
     )

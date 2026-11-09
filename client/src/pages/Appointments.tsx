@@ -1,3 +1,4 @@
+import { askConfirm } from "../lib/askConfirm";
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { api } from "../lib/api";
@@ -195,7 +196,7 @@ function AppointmentTzFixBanner() {
   }, []);
 
   async function apply() {
-    if (!items || !confirm(`Somar 3h no horário de ${items.length} visita(s) agendada(s) pela IA?`)) return;
+    if (!items || !await askConfirm(`Somar 3h no horário de ${items.length} visita(s) agendada(s) pela IA?`)) return;
     setApplying(true);
     try {
       const res = await api.post("/appointments/tz-fix");
@@ -289,7 +290,7 @@ function AppointmentDedupeBanner() {
   const total = (groups ?? []).reduce((n, g) => n + g.cancel.length, 0);
 
   async function apply() {
-    if (!confirm(`Cancelar ${total} agendamento(s) duplicado(s) de ${groups?.length} lead(s)? Os cancelados continuam no histórico.`)) return;
+    if (!await askConfirm(`Cancelar ${total} agendamento(s) duplicado(s) de ${groups?.length} lead(s)? Os cancelados continuam no histórico.`)) return;
     setApplying(true);
     try {
       const res = await api.post("/appointments/dedupe");
@@ -427,7 +428,7 @@ export function Appointments() {
   }
 
   async function remove(id: string) {
-    if (!confirm("Cancelar este agendamento?")) return;
+    if (!await askConfirm("Cancelar este agendamento?")) return;
     await api.delete(`/appointments/${id}`);
   }
 

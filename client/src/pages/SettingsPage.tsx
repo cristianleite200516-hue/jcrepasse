@@ -1,3 +1,4 @@
+import { askConfirm } from "../lib/askConfirm";
 import { FormEvent, useEffect, useState } from "react";
 import { api } from "../lib/api";
 import { useAuth } from "../lib/auth";
@@ -57,7 +58,7 @@ export function SettingsPage() {
 
   async function updateUserRole(target: UserRow, role: UserRow["role"]) {
     const label = role === "ADMIN" ? "Administrador" : "Agente";
-    if (!confirm(`Alterar o papel de ${target.name} para ${label}? Vale imediatamente.`)) {
+    if (!await askConfirm(`Alterar o papel de ${target.name} para ${label}? Vale imediatamente.`)) {
       await loadUsers();
       return;
     }
