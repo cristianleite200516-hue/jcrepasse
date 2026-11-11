@@ -107,7 +107,6 @@ function groupVehicles(list: Vehicle[]): Group[] {
 
 interface MonthSummary {
   key: string;
-  bought: number;
   paid: number;
   expenses: number;
   sold: number;
@@ -115,17 +114,14 @@ interface MonthSummary {
   profit: number;
 }
 
+// Igual ao Excel: o mês soma só os carros vendidos nele (pago, gastos, venda e lucro desses carros).
+// Carro em estoque não entra em mês nenhum; aparece em "Parado em estoque hoje".
 function summarize(vehicles: Vehicle[], key: string): MonthSummary {
-  const boughtList = vehicles.filter((v) => monthKey(v.purchaseDate) === key);
   const soldList = vehicles.filter((v) => isSold(v) && saleMonth(v) === key);
   return {
     key,
-    bought: boughtList.length,
-    paid: boughtList.reduce((a, v) => a + (v.purchasePrice ?? 0), 0),
-    expenses: vehicles.reduce(
-      (a, v) => a + v.expenses.filter((e) => monthKey(e.date ?? v.purchaseDate) === key).reduce((s, e) => s + e.amount, 0),
-      0,
-    ),
+    paid: soldList.reduce((a, v) => a + (v.purchasePrice ?? 0), 0),
+    expenses: soldList.reduce((a, v) => a + spent(v), 0),
     sold: soldList.length,
     revenue: soldList.reduce((a, v) => a + (v.salePrice ?? 0), 0),
     profit: soldList.reduce((a, v) => a + (profit(v) ?? 0), 0),
@@ -402,16 +398,14 @@ export function Historico() {
 
   const months = useMemo(() => {
     const keys = new Set<string>([currentMonth()]);
+    // Só meses que tiveram venda (e o mês atual).
     vehicles.forEach((v) => {
-      keys.add(monthKey(v.purchaseDate));
       if (isSold(v)) keys.add(saleMonth(v));
     });
     return [...keys].sort().reverse();
   }, [vehicles]);
 
   const summaries = useMemo(() => months.map((m) => summarize(vehicles, m)), [vehicles, months]);
-  // Botões de mês: só meses que tiveram venda (e o mês atual).
-  const saleMonths = useMemo(() => months.filter((m) => m === currentMonth() || vehicles.some((v) => isSold(v) && saleMonth(v) === m)), [vehicles, months]);
 
   // No mês escolhido aparecem só os carros vendidos nele (o "Todos os meses" mostra tudo, estoque incluso).
   const filtered = useMemo(() => {
@@ -429,26 +423,25 @@ export function Historico() {
   const allTime: MonthSummary =summaries.reduce(
     (a, s) => ({
       key: "todos",
-      bought: a.bought + s.bought,
       paid: a.paid + s.paid,
       expenses: a.expenses + s.expenses,
       sold: a.sold + s.sold,
       revenue: a.revenue + s.revenue,
       profit: a.profit + s.profit,
     }),
-    { key: "todos", bought: 0, paid: 0, expenses: 0, sold: 0, revenue: 0, profit: 0 },
+    { key: "todos", paid: 0, expenses: 0, sold: 0, revenue: 0, profit: 0 },
   );
   const sel = month === "todos" ? allTime : summaries.find((s) => s.key === month) ?? summarize(vehicles, month);
   const inStock = vehicles.filter((v) => !isSold(v));
   const stockValue = inStock.reduce((a, v) => a + invested(v), 0);
   const periodo = month === "todos" ? "(tudo)" : "no mês";
 
-  // Gastos do período somados por tipo (mesma regra de mês dos cartões: data do gasto).
+  // Gastos do período somados por tipo (mesma regra dos cartões: gastos dos carros vendidos no período).
   const byCategory = useMemo(() => {
     const totals = new Map<string, number>();
     vehicles.forEach((v) =>
       v.expenses.forEach((e) => {
-        if (month !== "todos" && monthKey(e.date ?? v.purchaseDate) !== month) return;
+        if (!isSold(v) || (month !== "todos" && saleMonth(v) !== month)) return;
         const c = e.category ?? "Outros";
         totals.set(c, (totals.get(c) ?? 0) + e.amount);
       }),
@@ -618,7 +611,7 @@ export function Historico() {
         >
           Todos os meses
         </button>
-        {saleMonths.map((m) => (
+        {months.map((m) => (
           <button
             key={m}
             onClick={() => setMonth(m)}
@@ -630,8 +623,8 @@ export function Historico() {
       </div>
 
       <div className="grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-6">
-        {card(`Comprado ${periodo}`, sel.paid, "text-slate-900", `${sel.bought} carros`)}
-        {card(`Gastos ${periodo}`, sel.expenses, "text-amber-600")}
+        {card(`Pago nos vendidos ${periodo}`, sel.paid, "text-slate-900", `${sel.sold} carros`)}
+        {card(`Gastos nos vendidos ${periodo}`, sel.expenses, "text-amber-600")}
         {card(`Vendido ${periodo}`, sel.revenue, "text-slate-900", `${sel.sold} vendidos`)}
         {card(`Lucro ${periodo}`, sel.profit, sel.profit >= 0 ? "text-emerald-600" : "text-red-600", "só carros vendidos")}
         {card(`Seu salário ${periodo}`, month === "todos" ? summaries.reduce((a, s) => a + salary(s.profit), 0) : salary(sel.profit), "text-violet-600", "10% do lucro")}
@@ -700,11 +693,10 @@ export function Historico() {
               <thead className="bg-slate-50 text-left text-xs uppercase text-slate-500">
                 <tr>
                   <th className="px-3 py-2">Mês</th>
-                  <th className="px-3 py-2 text-right">Compras</th>
+                  <th className="px-3 py-2 text-right">Vendidos</th>
                   <th className="px-3 py-2 text-right">Pago</th>
                   <th className="px-3 py-2 text-right">Gastos</th>
-                  <th className="px-3 py-2 text-right">Vendas</th>
-                  <th className="px-3 py-2 text-right">Vendido</th>
+                  <th className="px-3 py-2 text-right">Vendido por</th>
                   <th className="px-3 py-2 text-right">Lucro</th>
                   <th className="px-3 py-2 text-right">Salário (10%)</th>
                 </tr>
@@ -717,10 +709,9 @@ export function Historico() {
                     className={`cursor-pointer border-t border-slate-100 hover:bg-slate-50 ${s.key === "todos" ? "font-semibold" : ""} ${month === s.key ? "bg-emerald-50" : ""}`}
                   >
                     <td className="px-3 py-2">{s.key === "todos" ? "Total" : monthLabel(s.key)}</td>
-                    <td className="px-3 py-2 text-right">{s.bought}</td>
+                    <td className="px-3 py-2 text-right">{s.sold}</td>
                     <td className="whitespace-nowrap px-3 py-2 text-right">{maskCurrency(hidden, fmt(s.paid))}</td>
                     <td className="whitespace-nowrap px-3 py-2 text-right text-amber-700">{maskCurrency(hidden, fmt(s.expenses))}</td>
-                    <td className="px-3 py-2 text-right">{s.sold}</td>
                     <td className="whitespace-nowrap px-3 py-2 text-right">{maskCurrency(hidden, fmt(s.revenue))}</td>
                     <td className={`whitespace-nowrap px-3 py-2 text-right ${s.profit >= 0 ? "text-emerald-600" : "text-red-600"}`}>
                       {maskCurrency(hidden, fmt(s.profit))}
