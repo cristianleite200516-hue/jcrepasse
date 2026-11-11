@@ -410,14 +410,16 @@ export function Historico() {
   }, [vehicles]);
 
   const summaries = useMemo(() => months.map((m) => summarize(vehicles, m)), [vehicles, months]);
+  // Botões de mês: só meses que tiveram venda (e o mês atual).
+  const saleMonths = useMemo(() => months.filter((m) => m === currentMonth() || vehicles.some((v) => isSold(v) && saleMonth(v) === m)), [vehicles, months]);
 
-  // No mês escolhido aparecem os carros comprados OU vendidos nele.
+  // No mês escolhido aparecem só os carros vendidos nele (o "Todos os meses" mostra tudo, estoque incluso).
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
     return vehicles.filter(
       (v) =>
         (status === "todos" || (status === "vendidos") === isSold(v)) &&
-        (month === "todos" || monthKey(v.purchaseDate) === month || (isSold(v) && saleMonth(v) === month)) &&
+        (month === "todos" || (isSold(v) && saleMonth(v) === month)) &&
         (!q || `${v.plate ?? ""} ${v.model} ${v.notes ?? ""}`.toLowerCase().includes(q)),
     );
   }, [vehicles, search, status, month]);
@@ -616,7 +618,7 @@ export function Historico() {
         >
           Todos os meses
         </button>
-        {months.map((m) => (
+        {saleMonths.map((m) => (
           <button
             key={m}
             onClick={() => setMonth(m)}
