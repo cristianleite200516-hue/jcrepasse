@@ -72,6 +72,39 @@ const currentMonth = () => new Date().toISOString().slice(0, 7);
 const SALARY_RATE = 0.1;
 const salary = (profit: number) => Math.max(0, profit) * SALARY_RATE;
 
+// Na visão "todos os meses" cada carro fica no mês em que foi vendido; os não vendidos ficam em "Em estoque".
+const groupKey = (v: Vehicle) => (isSold(v) ? saleMonth(v) : "estoque");
+const groupRank = (k: string) => (k === "estoque" ? 0 : k === "sem-data" ? 2 : 1);
+const groupLabel = (k: string) => (k === "estoque" ? "Em estoque" : monthLabel(k));
+const sortDate = (v: Vehicle) => v.saleDate ?? v.purchaseDate ?? "";
+
+interface Group {
+  key: string;
+  list: Vehicle[];
+  paid: number;
+  spent: number;
+  revenue: number;
+  profit: number;
+}
+
+function groupVehicles(list: Vehicle[]): Group[] {
+  const map = new Map<string, Vehicle[]>();
+  list.forEach((v) => map.set(groupKey(v), [...(map.get(groupKey(v)) ?? []), v]));
+  return [...map.entries()]
+    .sort(([a], [b]) => groupRank(a) - groupRank(b) || b.localeCompare(a))
+    .map(([key, vs]) => {
+      const sorted = [...vs].sort((a, b) => sortDate(b).localeCompare(sortDate(a)));
+      return {
+        key,
+        list: sorted,
+        paid: sorted.reduce((a, v) => a + (v.purchasePrice ?? 0), 0),
+        spent: sorted.reduce((a, v) => a + spent(v), 0),
+        revenue: sorted.reduce((a, v) => a + (v.salePrice ?? 0), 0),
+        profit: sorted.reduce((a, v) => a + (profit(v) ?? 0), 0),
+      };
+    });
+}
+
 interface MonthSummary {
   key: string;
   bought: number;
@@ -356,7 +389,7 @@ export function Historico() {
   const [openId, setOpenId] = useState<string | null>(null);
   const [search, setSearch] = useState("");
   const [status, setStatus] = useState<StatusFilter>("todos");
-  const [month, setMonth] = useState(currentMonth);
+  const [month, setMonth] = useState("todos");
   const { hidden } = useHideMoney();
 
   useEffect(() => {
@@ -389,7 +422,9 @@ export function Historico() {
     );
   }, [vehicles, search, status, month]);
 
-  const allTime: MonthSummary = summaries.reduce(
+  const groups = useMemo(() => groupVehicles(filtered), [filtered]);
+
+  const allTime: MonthSummary =summaries.reduce(
     (a, s) => ({
       key: "todos",
       bought: a.bought + s.bought,
@@ -421,7 +456,22 @@ export function Historico() {
 
   function exportExcel() {
     const num = (n: number | null) => (n == null ? "" : n.toFixed(2).replace(".", ","));
-    const rows = filtered.map((v) => ({
+    const blank = {
+      Mês: "", Placa: "", Modelo: "", Ano: "", Km: "", "Data compra": "", "Data venda": "",
+      Pago: "", Gastos: "", "Total investido": "", "Vendido por": "", Lucro: "", Situação: "", "Detalhe dos gastos": "", Observação: "",
+    };
+    const total = (label: string, g: Pick<Group, "paid" | "spent" | "revenue" | "profit">, count: number, sold: boolean) => ({
+      ...blank,
+      Mês: label,
+      Pago: num(g.paid),
+      Gastos: num(g.spent),
+      "Total investido": num(g.paid + g.spent),
+      "Vendido por": sold ? num(g.revenue) : "",
+      Lucro: sold ? num(g.profit) : "",
+      Situação: `${count} carro${count === 1 ? "" : "s"}`,
+    });
+    const carRow = (g: Group, v: Vehicle) => ({
+      Mês: groupLabel(g.key),
       Placa: v.plate ?? "",
       Modelo: v.model,
       Ano: v.year ?? "",
@@ -438,8 +488,25 @@ export function Historico() {
         .map((e) => `${e.category ?? "Outros"}${e.description !== e.category ? ` (${e.description})` : ""}: ${num(e.amount)}`)
         .join(" | "),
       Observação: v.notes ?? "",
-    }));
-    if (rows.length === 0) return alert("Nenhum carro para exportar.");
+    });
+    if (groups.length === 0) return alert("Nenhum carro para exportar.");
+    // Igual planilha: carros de cada mês, linha de TOTAL do mês e uma linha em branco separando.
+    const rows: Record<string, unknown>[] = [];
+    groups.forEach((g) => {
+      g.list.forEach((v) => rows.push(carRow(g, v)));
+      rows.push(total(`TOTAL ${groupLabel(g.key).toUpperCase()}`, g, g.list.length, g.key !== "estoque"));
+      rows.push({ ...blank });
+    });
+    const soldGroups = groups.filter((g) => g.key !== "estoque");
+    const sum = (f: (g: Group) => number) => soldGroups.reduce((a, g) => a + f(g), 0);
+    rows.push(
+      total(
+        "TOTAL GERAL VENDIDOS",
+        { paid: sum((g) => g.paid), spent: sum((g) => g.spent), revenue: sum((g) => g.revenue), profit: sum((g) => g.profit) },
+        sum((g) => g.list.length),
+        true,
+      ),
+    );
     downloadCsv(`historico-${month === "todos" ? "completo" : month}.csv`, rows);
   }
 
@@ -465,6 +532,66 @@ export function Historico() {
     </div>
   );
 
+  // Linha de título de cada mês na visão "todos os meses", com os totais dos carros logo abaixo dela.
+  const groupHeader = (g: Group) => {
+    const stock = g.key === "estoque";
+    const n = g.list.length;
+    return (
+      <tr key={`grupo-${g.key}`} className={`border-t-2 font-semibold ${stock ? "border-sky-200 bg-sky-50 text-sky-900" : "border-emerald-200 bg-emerald-50 text-emerald-900"}`}>
+        <td colSpan={5} className="px-3 py-2">
+          {groupLabel(g.key)}
+          <span className="ml-2 text-xs font-normal">
+            {stock ? `${n} carro${n === 1 ? "" : "s"} parado${n === 1 ? "" : "s"}` : `${n} vendido${n === 1 ? "" : "s"}`}
+            {!stock && <> · seu salário {maskCurrency(hidden, fmt(salary(g.profit)))}</>}
+          </span>
+        </td>
+        <td className="whitespace-nowrap px-3 py-2 text-right">{maskCurrency(hidden, fmt(g.paid))}</td>
+        <td className="whitespace-nowrap px-3 py-2 text-right text-amber-700">{maskCurrency(hidden, fmt(g.spent))}</td>
+        <td className="whitespace-nowrap px-3 py-2 text-right">{stock ? "—" : maskCurrency(hidden, fmt(g.revenue))}</td>
+        <td className={`whitespace-nowrap px-3 py-2 text-right ${stock ? "" : g.profit >= 0 ? "text-emerald-700" : "text-red-600"}`}>
+          {stock ? "—" : maskCurrency(hidden, fmt(g.profit))}
+        </td>
+      </tr>
+    );
+  };
+
+  const row = (v: Vehicle) => {
+    const p = profit(v);
+    const open = openId === v.id;
+    const otherMonth = month !== "todos" && isSold(v) && saleMonth(v) !== month;
+    return [
+      <tr key={v.id} onClick={() => setOpenId(open ? null : v.id)} className={`cursor-pointer border-t border-slate-100 hover:bg-slate-50 ${open ? "bg-slate-50" : ""}`}>
+        <td className="whitespace-nowrap px-3 py-2 font-mono text-xs">{v.plate ?? "—"}</td>
+        <td className="px-3 py-2">
+          {v.model}
+          {v.notes && <div className="text-xs text-slate-400">{v.notes}</div>}
+        </td>
+        <td className="whitespace-nowrap px-3 py-2 text-slate-500">{v.year ?? "—"}</td>
+        <td className="whitespace-nowrap px-3 py-2">{fmtDate(v.purchaseDate)}</td>
+        <td className="whitespace-nowrap px-3 py-2">
+          {isSold(v) ? fmtDate(v.saleDate) : <span className="rounded bg-sky-100 px-1.5 py-0.5 text-xs text-sky-700">Em estoque</span>}
+        </td>
+        <td className="whitespace-nowrap px-3 py-2 text-right">{v.purchasePrice != null ? maskCurrency(hidden, fmt(v.purchasePrice)) : "—"}</td>
+        <td className="whitespace-nowrap px-3 py-2 text-right text-amber-700">{v.expenses.length ? maskCurrency(hidden, fmt(spent(v))) : "—"}</td>
+        <td className="whitespace-nowrap px-3 py-2 text-right">{v.salePrice != null ? maskCurrency(hidden, fmt(v.salePrice)) : "—"}</td>
+        <td
+          title={otherMonth ? `Lucro entra em ${monthLabel(saleMonth(v))}` : undefined}
+          className={`whitespace-nowrap px-3 py-2 text-right font-medium ${p == null || otherMonth ? "text-slate-400" : p >= 0 ? "text-emerald-600" : "text-red-600"}`}
+        >
+          {p != null ? maskCurrency(hidden, fmt(p)) : "—"}
+          {otherMonth && <div className="text-[10px] font-normal">entra em {monthLabel(saleMonth(v)).split(" ")[0].toLowerCase()}</div>}
+        </td>
+      </tr>,
+      open && (
+        <tr key={`${v.id}-detail`}>
+          <td colSpan={9} className="border-t border-slate-100 p-0">
+            <VehicleDetail v={v} hidden={hidden} onChange={replace} onDelete={() => remove(v)} />
+          </td>
+        </tr>
+      ),
+    ];
+  };
+
   return (
     <div className="space-y-4">
       <div className="flex flex-wrap items-center justify-between gap-2">
@@ -483,6 +610,12 @@ export function Historico() {
       </div>
 
       <div className="flex flex-wrap gap-1">
+        <button
+          onClick={() => setMonth("todos")}
+          className={`rounded-md px-3 py-1.5 text-sm font-medium ${month === "todos" ? "bg-emerald-500 text-white" : "bg-white text-slate-600 ring-1 ring-slate-200 hover:bg-slate-100"}`}
+        >
+          Todos os meses
+        </button>
         {months.map((m) => (
           <button
             key={m}
@@ -492,12 +625,6 @@ export function Historico() {
             {monthLabel(m)}
           </button>
         ))}
-        <button
-          onClick={() => setMonth("todos")}
-          className={`rounded-md px-3 py-1.5 text-sm font-medium ${month === "todos" ? "bg-emerald-500 text-white" : "bg-white text-slate-600 ring-1 ring-slate-200 hover:bg-slate-100"}`}
-        >
-          Todos
-        </button>
       </div>
 
       <div className="grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-6">
@@ -557,42 +684,7 @@ export function Historico() {
                   </td>
                 </tr>
               )}
-              {filtered.map((v) => {
-                const p = profit(v);
-                const open = openId === v.id;
-                const otherMonth = month !== "todos" && isSold(v) && saleMonth(v) !== month;
-                return [
-                  <tr key={v.id} onClick={() => setOpenId(open ? null : v.id)} className={`cursor-pointer border-t border-slate-100 hover:bg-slate-50 ${open ? "bg-slate-50" : ""}`}>
-                    <td className="whitespace-nowrap px-3 py-2 font-mono text-xs">{v.plate ?? "—"}</td>
-                    <td className="px-3 py-2">
-                      {v.model}
-                      {v.notes && <div className="text-xs text-slate-400">{v.notes}</div>}
-                    </td>
-                    <td className="whitespace-nowrap px-3 py-2 text-slate-500">{v.year ?? "—"}</td>
-                    <td className="whitespace-nowrap px-3 py-2">{fmtDate(v.purchaseDate)}</td>
-                    <td className="whitespace-nowrap px-3 py-2">
-                      {isSold(v) ? fmtDate(v.saleDate) : <span className="rounded bg-sky-100 px-1.5 py-0.5 text-xs text-sky-700">Em estoque</span>}
-                    </td>
-                    <td className="whitespace-nowrap px-3 py-2 text-right">{v.purchasePrice != null ? maskCurrency(hidden, fmt(v.purchasePrice)) : "—"}</td>
-                    <td className="whitespace-nowrap px-3 py-2 text-right text-amber-700">{v.expenses.length ? maskCurrency(hidden, fmt(spent(v))) : "—"}</td>
-                    <td className="whitespace-nowrap px-3 py-2 text-right">{v.salePrice != null ? maskCurrency(hidden, fmt(v.salePrice)) : "—"}</td>
-                    <td
-                      title={otherMonth ? `Lucro entra em ${monthLabel(saleMonth(v))}` : undefined}
-                      className={`whitespace-nowrap px-3 py-2 text-right font-medium ${p == null || otherMonth ? "text-slate-400" : p >= 0 ? "text-emerald-600" : "text-red-600"}`}
-                    >
-                      {p != null ? maskCurrency(hidden, fmt(p)) : "—"}
-                      {otherMonth && <div className="text-[10px] font-normal">entra em {monthLabel(saleMonth(v)).split(" ")[0].toLowerCase()}</div>}
-                    </td>
-                  </tr>,
-                  open && (
-                    <tr key={`${v.id}-detail`}>
-                      <td colSpan={9} className="border-t border-slate-100 p-0">
-                        <VehicleDetail v={v} hidden={hidden} onChange={replace} onDelete={() => remove(v)} />
-                      </td>
-                    </tr>
-                  ),
-                ];
-              })}
+              {month === "todos" ? groups.flatMap((g) => [groupHeader(g), ...g.list.flatMap(row)]) : filtered.flatMap(row)}
             </tbody>
           </table>
         </div>
