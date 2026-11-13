@@ -144,6 +144,45 @@ function monthKey(d: Date) {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
 }
 
+// Funil do período (semana ou mês, escolhido na Rentabilidade): dos leads que chegaram entre
+// from e to, quantos chegaram a cada etapa. Usa a etapa mais longe que o lead já alcançou
+// (pelo histórico de mudanças), então quem foi pra Proposta e depois Perdido conta em Proposta.
+// Leads só de estoque (sem cliente) ficam fora.
+const STAGE_RANK: Record<string, number> = { NOVO: 0, CONTATADO: 1, QUALIFICADO: 2, PROPOSTA: 3, GANHO: 4, FECHADO: 4, PERDIDO: -1 };
+
+dashboardRouter.get("/funnel", async (req, res) => {
+  const from = new Date(String(req.query.from));
+  const to = new Date(String(req.query.to));
+  if (isNaN(from.getTime()) || isNaN(to.getTime())) return res.status(400).json({ error: "Período inválido" });
+
+  const leads = await prisma.lead.findMany({
+    where: { createdAt: { gte: from, lt: to }, source: { not: "estoque" } },
+    select: { id: true, status: true },
+  });
+  const logs = await prisma.auditLog.findMany({
+    where: { field: "status", leadId: { in: leads.map((l) => l.id) } },
+    select: { leadId: true, oldValue: true, newValue: true },
+  });
+  const best: Record<string, number> = {};
+  for (const l of leads) best[l.id] = STAGE_RANK[l.status] ?? 0;
+  for (const g of logs) {
+    for (const v of [g.oldValue, g.newValue]) {
+      const r = v ? STAGE_RANK[v] ?? 0 : 0;
+      if (r > (best[g.leadId] ?? 0)) best[g.leadId] = r;
+    }
+  }
+  const ranks = Object.values(best);
+  const atLeast = (r: number) => ranks.filter((x) => x >= r).length;
+  res.json({
+    chegaram: leads.length,
+    contatados: atLeast(1),
+    qualificados: atLeast(2),
+    proposta: atLeast(3),
+    comprados: atLeast(4),
+    perdidos: leads.filter((l) => l.status === "PERDIDO").length,
+  });
+});
+
 dashboardRouter.get("/monthly", async (req, res) => {
   const months = Math.min(Number(req.query.months) || 12, 24);
 

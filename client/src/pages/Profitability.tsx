@@ -6,6 +6,106 @@ import { Lead, STATUS_LABELS, TEAM_NAMES } from "../lib/types";
 import { maskCurrency, useHideMoney } from "../lib/useHideMoney";
 
 type SortMode = "lucro" | "recentes" | "margem";
+type PeriodMode = "semana" | "mes" | "tudo";
+
+const MESES = ["janeiro", "fevereiro", "março", "abril", "maio", "junho", "julho", "agosto", "setembro", "outubro", "novembro", "dezembro"];
+const ddmm = (d: Date) => d.toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit" });
+
+// Semana de segunda a domingo; offset 0 = atual, -1 = anterior...
+function periodRange(mode: PeriodMode, offset: number) {
+  const now = new Date();
+  if (mode === "mes") {
+    const from = new Date(now.getFullYear(), now.getMonth() + offset, 1);
+    const to = new Date(from.getFullYear(), from.getMonth() + 1, 1);
+    return { from, to, label: `${MESES[from.getMonth()]} de ${from.getFullYear()}` };
+  }
+  if (mode === "semana") {
+    const from = new Date(now.getFullYear(), now.getMonth(), now.getDate() - ((now.getDay() + 6) % 7) + 7 * offset);
+    const to = new Date(from.getFullYear(), from.getMonth(), from.getDate() + 7);
+    return { from, to, label: `${ddmm(from)} a ${ddmm(new Date(to.getTime() - 86400000))}` };
+  }
+  return { from: new Date(2000, 0, 1), to: new Date(now.getFullYear() + 1, 0, 1), label: "todo o período" };
+}
+
+interface FunnelData {
+  chegaram: number;
+  contatados: number;
+  qualificados: number;
+  proposta: number;
+  comprados: number;
+  perdidos: number;
+}
+
+function Funnel({ from, to, vendidos, compradosTotal }: { from: Date; to: Date; vendidos: number; compradosTotal: number }) {
+  const [data, setData] = useState<FunnelData | null>(null);
+  const fromMs = from.getTime();
+  const toMs = to.getTime();
+  useEffect(() => {
+    setData(null);
+    api
+      .get("/dashboard/funnel", { params: { from: new Date(fromMs).toISOString(), to: new Date(toMs).toISOString() } })
+      .then((res) => setData(res.data))
+      .catch(() => setData(null));
+  }, [fromMs, toMs]);
+
+  const steps = data
+    ? [
+        { label: "Leads que chegaram", value: data.chegaram },
+        { label: "Contatados", value: data.contatados },
+        { label: "Qualificados", value: data.qualificados },
+        { label: "Proposta", value: data.proposta },
+        { label: "Compramos o carro", value: data.comprados },
+      ]
+    : [];
+  const top = Math.max(1, data?.chegaram ?? 1);
+
+  return (
+    <div className="rounded-lg border border-slate-200 bg-white p-4">
+      <div className="mb-3 flex flex-wrap items-baseline justify-between gap-2">
+        <span className="text-sm font-semibold text-slate-600">Funil do período</span>
+        <span className="text-xs text-slate-500">dos leads que chegaram no período, até onde cada um já foi</span>
+      </div>
+      {!data ? (
+        <div className="text-xs text-slate-500">Carregando...</div>
+      ) : (
+        <div className="space-y-2">
+          {steps.map((st, i) => {
+            const pct = (st.value / top) * 100;
+            const prev = i > 0 ? steps[i - 1].value : null;
+            return (
+              <div key={st.label} className="flex items-center gap-3 text-xs">
+                <div className="w-32 shrink-0 text-slate-600">{st.label}</div>
+                <div className="h-6 min-w-0 flex-1 rounded bg-slate-100">
+                  <div
+                    className="flex h-6 items-center rounded bg-[#2a78d6] px-2 font-semibold text-white"
+                    style={{ width: `${Math.max(pct, st.value ? 8 : 0)}%` }}
+                  >
+                    {st.value}
+                  </div>
+                </div>
+                <div className="w-28 shrink-0 text-right text-slate-500">
+                  {i > 0 && `${pct.toFixed(0)}%`}
+                  {prev ? <span className="ml-1 text-slate-400">({((st.value / prev) * 100).toFixed(0)}% da etapa)</span> : null}
+                </div>
+              </div>
+            );
+          })}
+          <div className="flex flex-wrap gap-x-4 gap-y-1 border-t border-slate-100 pt-2 text-xs text-slate-500">
+            <span>
+              Perdidos: <b className="text-red-600">{data.perdidos}</b>
+            </span>
+            <span>
+              Carros comprados no período (com estoque): <b className="text-slate-800">{compradosTotal}</b>
+            </span>
+            <span>
+              Carros vendidos no período: <b className="text-emerald-600">{vendidos}</b>
+            </span>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
 
 function vehicleLabel(lead: Lead) {
   const parts = [lead.vehicleBrand, lead.vehicleModel, lead.vehicleYear].filter(Boolean);
@@ -166,6 +266,18 @@ export function Profitability() {
   const [leads, setLeads] = useState<Lead[]>([]);
   const [loading, setLoading] = useState(true);
   const [sortMode, setSortMode] = useState<SortMode>("lucro");
+  const [periodMode, setPeriodMode] = useState<PeriodMode>("mes");
+  const [offset, setOffset] = useState(0);
+  const period = useMemo(() => periodRange(periodMode, offset), [periodMode, offset]);
+  const inPeriod = (d: string | null) => {
+    if (periodMode === "tudo") return true;
+    if (!d) return false;
+    const t = new Date(d).getTime();
+    return t >= period.from.getTime() && t < period.to.getTime();
+  };
+  const soldInPeriod = (l: Lead) => l.resaleStatus === "VENDIDO" && inPeriod(l.soldAt);
+  // No período aparecem os carros vendidos nele e os comprados nele.
+  const periodLeads = periodMode === "tudo" ? leads : leads.filter((l) => soldInPeriod(l) || inPeriod(l.closedAt));
   const { hidden } = useHideMoney();
 
   useEffect(() => {
@@ -201,7 +313,7 @@ export function Profitability() {
   }
 
   const sorted = useMemo(() => {
-    const result = [...leads];
+    const result = [...periodLeads];
     if (sortMode === "lucro") {
       result.sort((a, b) => (profit(b) ?? -Infinity) - (profit(a) ?? -Infinity));
     } else if (sortMode === "margem") {
@@ -210,11 +322,12 @@ export function Profitability() {
       result.sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime());
     }
     return result;
-  }, [leads, sortMode]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [leads, sortMode, periodMode, offset]);
 
   // Os totais contam só carros vendidos; os demais seguem na tabela com o lucro previsto.
   const withProfit = leads
-    .filter((l) => l.resaleStatus === "VENDIDO")
+    .filter(soldInPeriod)
     .map(profit)
     .filter((p): p is number => p != null);
   const lucroTotal = withProfit.reduce((a, b) => a + b, 0);
@@ -226,20 +339,61 @@ export function Profitability() {
     <div className="space-y-4">
       <div className="flex items-center justify-between">
         <h1 className="text-lg font-bold text-slate-900">Rentabilidade</h1>
-        <select
-          value={sortMode}
-          onChange={(e) => setSortMode(e.target.value as SortMode)}
-          className="rounded-md border border-slate-300 px-2 py-1.5 text-sm"
-        >
-          <option value="lucro">Maior lucro</option>
-          <option value="margem">Maior margem</option>
-          <option value="recentes">Mais recentes</option>
-        </select>
+        <div className="flex flex-wrap items-center gap-2">
+          <div className="flex overflow-hidden rounded-md border border-slate-300 text-sm">
+            {(["semana", "mes", "tudo"] as PeriodMode[]).map((m) => (
+              <button
+                key={m}
+                onClick={() => {
+                  setPeriodMode(m);
+                  setOffset(0);
+                }}
+                className={`px-3 py-1.5 ${periodMode === m ? "bg-[#0b2545] text-white" : "bg-white text-slate-600 hover:bg-slate-50"}`}
+              >
+                {m === "semana" ? "Semana" : m === "mes" ? "Mês" : "Tudo"}
+              </button>
+            ))}
+          </div>
+          {periodMode !== "tudo" && (
+            <div className="flex items-center gap-1 text-sm">
+              <button onClick={() => setOffset((o) => o - 1)} className="rounded-md border border-slate-300 px-2 py-1 hover:bg-slate-50" aria-label="Período anterior">
+                ‹
+              </button>
+              <span className="min-w-36 text-center font-medium text-slate-700">{period.label}</span>
+              <button
+                onClick={() => setOffset((o) => o + 1)}
+                disabled={offset >= 0}
+                className="rounded-md border border-slate-300 px-2 py-1 hover:bg-slate-50 disabled:opacity-40"
+                aria-label="Próximo período"
+              >
+                ›
+              </button>
+            </div>
+          )}
+          <select
+            value={sortMode}
+            onChange={(e) => setSortMode(e.target.value as SortMode)}
+            className="rounded-md border border-slate-300 px-2 py-1.5 text-sm"
+          >
+            <option value="lucro">Maior lucro</option>
+            <option value="margem">Maior margem</option>
+            <option value="recentes">Mais recentes</option>
+          </select>
+        </div>
       </div>
+
+      <Funnel
+        from={period.from}
+        to={period.to}
+        vendidos={leads.filter(soldInPeriod).length}
+        compradosTotal={leads.filter((l) => (l.status === "FECHADO" || l.status === "GANHO") && inPeriod(l.closedAt)).length}
+      />
 
       <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
         <div className="rounded-lg border border-slate-200 bg-white p-4">
-          <div className="text-xs text-slate-500">Lucro total</div>
+          <div className="text-xs text-slate-500">
+            Lucro {periodMode === "semana" ? "na semana" : periodMode === "mes" ? "no mês" : "total"}
+          </div>
           <div className={`mt-1 text-2xl font-bold ${lucroTotal >= 0 ? "text-emerald-600" : "text-red-600"}`}>
             {maskCurrency(hidden, fmtCurrency(lucroTotal))}
           </div>
@@ -261,8 +415,8 @@ export function Profitability() {
       </div>
 
       <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
-        <Ranking title="🏆 Ranking — prospecção de compra" leads={leads} field="purchasedBy" />
-        <Ranking title="🏆 Ranking — vendas" leads={leads} field="soldBy" />
+        <Ranking title="🏆 Ranking — prospecção de compra" leads={periodLeads} field="purchasedBy" />
+        <Ranking title="🏆 Ranking — vendas" leads={periodLeads} field="soldBy" />
       </div>
 
       {loading ? (
@@ -338,7 +492,7 @@ export function Profitability() {
               {sorted.length === 0 && (
                 <tr>
                   <td colSpan={15} className="px-4 py-6 text-center text-slate-500">
-                    Nenhum negócio com valor de compra ou venda preenchido ainda
+                    Nenhum carro comprado ou vendido neste período
                   </td>
                 </tr>
               )}
