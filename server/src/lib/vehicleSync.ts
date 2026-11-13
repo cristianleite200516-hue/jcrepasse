@@ -187,7 +187,7 @@ export async function syncLeadFromVehicle(vehicleId: string, opts: { createIfMis
   for (const e of vehicle.expenses) costs[bucketOf(e.category)] += e.amount;
   const costData = Object.fromEntries(LEAD_COSTS.map((c) => [c.field, costs[c.key] > 0 ? Math.round(costs[c.key] * 100) / 100 : null]));
 
-  const current = await prisma.lead.findUnique({ where: { id: leadId }, select: { resaleStatus: true, status: true } });
+  const current = await prisma.lead.findUnique({ where: { id: leadId }, select: { resaleStatus: true, status: true, soldAt: true } });
   if (!current) return null;
 
   const data: Record<string, unknown> = { ...costData };
@@ -202,9 +202,10 @@ export async function syncLeadFromVehicle(vehicleId: string, opts: { createIfMis
       ...(vehicle.km != null ? { vehicleKm: vehicle.km } : {}),
       ...(vehicle.purchaseDate ? { closedAt: vehicle.purchaseDate } : {}),
     });
-    if (vehicle.saleDate) {
+    // Mesma regra do Histórico: tem data OU valor de venda = vendido.
+    if (vehicle.saleDate || vehicle.salePrice != null) {
       data.resaleStatus = "VENDIDO";
-      data.soldAt = vehicle.saleDate;
+      data.soldAt = vehicle.saleDate ?? current.soldAt ?? null;
     } else if (current.resaleStatus === "VENDIDO") {
       data.resaleStatus = "EM_ESTOQUE";
       data.soldAt = null;
