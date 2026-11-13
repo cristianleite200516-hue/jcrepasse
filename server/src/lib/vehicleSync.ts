@@ -152,12 +152,8 @@ export async function syncLeadFromVehicle(vehicleId: string, opts: { createIfMis
   if (!vehicle.leadId && vehicle.source === "lead") return null;
   if (!vehicle.leadId) {
     if (!opts.createIfMissing) return null;
-    // Já existe um lead com a mesma placa e sem carro no Histórico? Liga nele em vez de duplicar.
-    const plate = normalizePlate(vehicle.plate);
-    const samePlate = plate
-      ? (await prisma.lead.findMany({ where: { vehiclePlate: { not: null }, vehicle: null }, select: { id: true, vehiclePlate: true } }))
-          .find((l) => normalizePlate(l.vehiclePlate) === plate)
-      : undefined;
+    // Já existe um lead desse carro sem ligação com o Histórico? Liga nele em vez de duplicar.
+    const samePlate = await findMatchingLead(vehicle);
     const lead = samePlate ?? await prisma.lead.create({
       data: {
         name: `Estoque — ${vehicle.model}`,
@@ -216,9 +212,75 @@ export async function syncLeadFromVehicle(vehicleId: string, opts: { createIfMis
   return { lead, created };
 }
 
+const tokens = (t: string | null) =>
+  new Set((t ?? "").toUpperCase().normalize("NFD").replace(/[^A-Z0-9 ]/g, " ").split(/s+/).filter((w) => w.length >= 2 && !/^d+$/.test(w)));
+
+/**
+ * Lead do mesmo carro que ainda não está ligado a nenhum carro do Histórico: pela placa ou,
+ * sem placa, pelo mesmo valor de venda + compra parecida + uma palavra do modelo em comum.
+ * Só devolve se houver exatamente um candidato.
+ */
+async function findMatchingLead(v: { plate: string | null; model: string; purchasePrice: number | null; salePrice: number | null }, excludeId?: string) {
+  const candidates = await prisma.lead.findMany({
+    where: { vehicle: null, status: { in: ["FECHADO", "GANHO"] }, ...(excludeId ? { id: { not: excludeId } } : {}) },
+    select: { id: true, vehiclePlate: true, vehicleBrand: true, vehicleModel: true, vehicleInfo: true, name: true, purchasePrice: true, salePrice: true },
+  });
+  const plate = normalizePlate(v.plate);
+  if (plate) {
+    const byPlate = candidates.filter((l) => normalizePlate(l.vehiclePlate) === plate);
+    if (byPlate.length === 1) return byPlate[0];
+  }
+  if (v.salePrice == null || v.purchasePrice == null) return undefined;
+  const words = tokens(v.model);
+  const close = candidates.filter((l) => {
+    if (l.salePrice == null || l.purchasePrice == null) return false;
+    if (Math.abs(l.salePrice - v.salePrice!) > 0.01) return false;
+    if (Math.abs(l.purchasePrice - v.purchasePrice!) > v.purchasePrice! * 0.03) return false;
+    const lw = tokens([l.vehicleBrand, l.vehicleModel, l.vehicleInfo, l.name].filter(Boolean).join(" "));
+    return [...words].some((w) => lw.has(w));
+  });
+  return close.length === 1 ? close[0] : undefined;
+}
+
+/** Apaga um lead que só existia pro carro aparecer no Estoque (sem cliente nem conversa de verdade). */
+export async function deleteStockLead(leadId: string) {
+  const conv = await prisma.conversation.findUnique({ where: { leadId } });
+  if (conv) await prisma.message.deleteMany({ where: { conversationId: conv.id } });
+  await prisma.$transaction([
+    ...(conv ? [prisma.conversation.delete({ where: { id: conv.id } })] : []),
+    prisma.attachment.deleteMany({ where: { leadId } }),
+    prisma.documentSignature.deleteMany({ where: { leadId } }),
+    prisma.appointment.deleteMany({ where: { leadId } }),
+    prisma.reminder.deleteMany({ where: { leadId } }),
+    prisma.auditLog.deleteMany({ where: { leadId } }),
+    prisma.lead.delete({ where: { id: leadId } }),
+  ]);
+}
+
+// Lead criado automaticamente pro Histórico que duplicou um lead antigo do mesmo carro:
+// liga o carro no lead antigo e apaga o duplicado.
+async function mergeAutoLeadDuplicates() {
+  const autos = await prisma.vehicle.findMany({
+    where: { lead: { source: "estoque", name: { startsWith: "Estoque — " } } },
+    include: { lead: { select: { id: true, _count: { select: { attachments: true, appointments: true, reminders: true } } } } },
+  });
+  for (const v of autos) {
+    if (!v.lead) continue;
+    const msgs = await prisma.message.count({ where: { conversation: { leadId: v.lead.id } } });
+    const c = v.lead._count;
+    if (msgs || c.attachments || c.appointments || c.reminders) continue;
+    const old = await findMatchingLead(v, v.lead.id);
+    if (!old) continue;
+    await prisma.vehicle.update({ where: { id: v.id }, data: { leadId: null } });
+    await deleteStockLead(v.lead.id);
+    await prisma.vehicle.update({ where: { id: v.id }, data: { leadId: old.id } });
+  }
+}
+
 // Ao subir o servidor: todo carro do Histórico ganha (ou acerta) seu lead, pra Estoque,
 // Rentabilidade e Painel mostrarem o mesmo que o Histórico — inclusive os lançados antes disso.
 export async function backfillLeadsFromVehicles() {
+  await mergeAutoLeadDuplicates();
   const all = await prisma.vehicle.findMany({ select: { id: true } });
   for (const v of all) {
     try {

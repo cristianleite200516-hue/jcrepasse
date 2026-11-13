@@ -3,7 +3,7 @@ import { z } from "zod";
 import { prisma } from "../lib/prisma";
 import { requireAdmin, requireAuth } from "../middleware/auth";
 import { getIO } from "../lib/events";
-import { syncLeadFromVehicle } from "../lib/vehicleSync";
+import { deleteStockLead, syncLeadFromVehicle } from "../lib/vehicleSync";
 
 // Histórico de veículos: o que foi pago, o que foi gasto e por quanto foi vendido.
 // Só Admin — são os mesmos números da Rentabilidade.
@@ -95,17 +95,7 @@ vehiclesRouter.delete("/:id", async (req, res) => {
   // Carro só de estoque (sem cliente/conversa de verdade) sai do Estoque junto. Lead de cliente fica.
   if (vehicle?.lead?.source === "estoque") {
     const leadId = vehicle.lead.id;
-    const conv = await prisma.conversation.findUnique({ where: { leadId } });
-    if (conv) await prisma.message.deleteMany({ where: { conversationId: conv.id } });
-    await prisma.$transaction([
-      ...(conv ? [prisma.conversation.delete({ where: { id: conv.id } })] : []),
-      prisma.attachment.deleteMany({ where: { leadId } }),
-      prisma.documentSignature.deleteMany({ where: { leadId } }),
-      prisma.appointment.deleteMany({ where: { leadId } }),
-      prisma.reminder.deleteMany({ where: { leadId } }),
-      prisma.auditLog.deleteMany({ where: { leadId } }),
-      prisma.lead.delete({ where: { id: leadId } }),
-    ]);
+    await deleteStockLead(leadId);
     getIO().emit("lead:deleted", { id: leadId });
   }
   res.status(204).end();
