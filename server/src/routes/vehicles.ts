@@ -85,8 +85,7 @@ vehiclesRouter.patch("/:id", async (req, res) => {
   const exists = await prisma.vehicle.findUnique({ where: { id: req.params.id } });
   if (!exists) return res.status(404).json({ error: "Veículo não encontrado" });
   const updated = await prisma.vehicle.update({ where: { id: req.params.id }, data: vehicleData(parsed.data) });
-  // Carro antigo sem lead (ex: da planilha) só ganha lead se ainda não foi vendido.
-  await pushToLead(updated.id, !updated.saleDate);
+  await pushToLead(updated.id, true);
   res.json(await prisma.vehicle.findUnique({ where: { id: updated.id }, include }));
 });
 

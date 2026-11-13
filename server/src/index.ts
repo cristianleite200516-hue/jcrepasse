@@ -28,7 +28,7 @@ import { attachmentsRouter } from "./routes/attachments";
 import { vehiclesRouter } from "./routes/vehicles";
 import { backfillContactedLeads } from "./lib/leadStatus";
 import { backfillMessageAttachments } from "./lib/attachmentBackfill";
-import { backfillLeadCostsFromVehicles } from "./lib/vehicleSync";
+import { backfillLeadsFromVehicles } from "./lib/vehicleSync";
 
 // Permite acessar o CRM tanto por localhost (no próprio Mac) quanto por outro
 // dispositivo na mesma rede Wi-Fi (ex: celular acessando pelo IP local do Mac).
@@ -121,5 +121,5 @@ server.listen(port, () => {
   startAutomations();
   backfillContactedLeads().catch((err) => console.error("Erro ao acertar status dos leads já respondidos:", err));
   backfillMessageAttachments().catch((err) => console.error("Erro ao ligar fotos antigas às mensagens:", err));
-  backfillLeadCostsFromVehicles().catch((err) => console.error("Erro ao levar gastos do Histórico pros leads:", err));
+  backfillLeadsFromVehicles().catch((err) => console.error("Erro ao levar gastos do Histórico pros leads:", err));
 });

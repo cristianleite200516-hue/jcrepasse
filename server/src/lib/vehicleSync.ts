@@ -148,9 +148,17 @@ export async function syncLeadFromVehicle(vehicleId: string, opts: { createIfMis
   if (!vehicle) return null;
 
   let created = false;
+  // Carro que já teve lead e o lead foi apagado de propósito: não recria.
+  if (!vehicle.leadId && vehicle.source === "lead") return null;
   if (!vehicle.leadId) {
     if (!opts.createIfMissing) return null;
-    const lead = await prisma.lead.create({
+    // Já existe um lead com a mesma placa e sem carro no Histórico? Liga nele em vez de duplicar.
+    const plate = normalizePlate(vehicle.plate);
+    const samePlate = plate
+      ? (await prisma.lead.findMany({ where: { vehiclePlate: { not: null }, vehicle: null }, select: { id: true, vehiclePlate: true } }))
+          .find((l) => normalizePlate(l.vehiclePlate) === plate)
+      : undefined;
+    const lead = samePlate ?? await prisma.lead.create({
       data: {
         name: `Estoque — ${vehicle.model}`,
         phone: `estoque-${crypto.randomUUID()}`,
@@ -163,13 +171,15 @@ export async function syncLeadFromVehicle(vehicleId: string, opts: { createIfMis
         conversation: { create: {} },
       },
     });
-    // Com lead próprio, lead e Histórico andam juntos (o lead deixa de só "preencher vazios").
     vehicle = await prisma.vehicle.update({
       where: { id: vehicle.id },
       data: { leadId: lead.id, source: "lead" },
       include: { expenses: true },
     });
-    created = true;
+    created = !samePlate;
+  } else if (vehicle.source !== "lead") {
+    // Histórico e lead viram espelho: o que muda num lado vai inteiro pro outro.
+    vehicle = await prisma.vehicle.update({ where: { id: vehicle.id }, data: { source: "lead" }, include: { expenses: true } });
   }
   const leadId = vehicle.leadId!;
 
@@ -177,15 +187,16 @@ export async function syncLeadFromVehicle(vehicleId: string, opts: { createIfMis
   for (const e of vehicle.expenses) costs[bucketOf(e.category)] += e.amount;
   const costData = Object.fromEntries(LEAD_COSTS.map((c) => [c.field, costs[c.key] > 0 ? Math.round(costs[c.key] * 100) / 100 : null]));
 
-  const current = await prisma.lead.findUnique({ where: { id: leadId }, select: { resaleStatus: true } });
+  const current = await prisma.lead.findUnique({ where: { id: leadId }, select: { resaleStatus: true, status: true } });
   if (!current) return null;
 
   const data: Record<string, unknown> = { ...costData };
   if (!opts.costsOnly) {
     Object.assign(data, {
-      // Carro ligado a lead de cliente que veio da planilha: campo vazio no Histórico não apaga o valor do lead.
-      purchasePrice: vehicle.source === "lead" ? vehicle.purchasePrice : vehicle.purchasePrice ?? undefined,
-      salePrice: vehicle.source === "lead" ? vehicle.salePrice : vehicle.salePrice ?? undefined,
+      // Carro no Histórico = carro comprado: lead fica como fechado pra aparecer no Estoque.
+      ...(current.status !== "FECHADO" && current.status !== "GANHO" ? { status: "FECHADO" } : {}),
+      purchasePrice: vehicle.purchasePrice,
+      salePrice: vehicle.salePrice,
       ...(vehicle.plate ? { vehiclePlate: vehicle.plate } : {}),
       ...(vehicle.year ? { vehicleYear: vehicle.year } : {}),
       ...(vehicle.km != null ? { vehicleKm: vehicle.km } : {}),
@@ -204,9 +215,15 @@ export async function syncLeadFromVehicle(vehicleId: string, opts: { createIfMis
   return { lead, created };
 }
 
-// Uma vez, ao subir o servidor: os custos dos leads passam a incluir os gastos lançados à mão
-// no Histórico (antes ficavam só no Histórico e a Rentabilidade não via).
-export async function backfillLeadCostsFromVehicles() {
-  const linked = await prisma.vehicle.findMany({ where: { leadId: { not: null }, source: "lead" }, select: { id: true } });
-  for (const v of linked) await syncLeadFromVehicle(v.id, { costsOnly: true });
+// Ao subir o servidor: todo carro do Histórico ganha (ou acerta) seu lead, pra Estoque,
+// Rentabilidade e Painel mostrarem o mesmo que o Histórico — inclusive os lançados antes disso.
+export async function backfillLeadsFromVehicles() {
+  const all = await prisma.vehicle.findMany({ select: { id: true } });
+  for (const v of all) {
+    try {
+      await syncLeadFromVehicle(v.id, { createIfMissing: true });
+    } catch (err) {
+      console.error("Erro ao levar carro do Histórico pro Estoque:", v.id, err);
+    }
+  }
 }
