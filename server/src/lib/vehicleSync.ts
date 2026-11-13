@@ -1,3 +1,4 @@
+import crypto from "crypto";
 import { prisma } from "./prisma";
 
 // Liga o lead comprado (status FECHADO com valor de compra) ao Histórico de Veículos, pra não
@@ -59,6 +60,17 @@ const LEAD_COSTS = [
   { field: "otherExpenses", key: "outras", category: "Outros", description: "Outras despesas (do lead)" },
 ] as const;
 
+type CostKey = (typeof LEAD_COSTS)[number]["key"];
+
+// Em qual campo de custo do lead cada tipo de gasto do Histórico entra (é o que a
+// Rentabilidade e o Painel somam).
+function bucketOf(category: string | null): CostKey {
+  if (category === "IPVA") return "ipva";
+  if (category === "Multas") return "multas";
+  if (category && ["Preparo", "Funilaria", "Mecânica", "Pneu", "Lavagem/Estética"].includes(category)) return "preparo";
+  return "outras";
+}
+
 /**
  * `wasBought`: se o lead já era compra antes desta alteração. O carro só é CRIADO na virada
  * (não-compra → compra); depois disso só é atualizado. Assim, se alguém apagar o carro do
@@ -106,10 +118,14 @@ export async function syncVehicleFromLead(leadId: string, wasBought: boolean) {
 
   // Só carros criados a partir do lead recebem os custos dele; os da planilha já trazem o custo lançado.
   if (vehicle.source !== "lead") return;
+  // O campo de custo do lead já soma os gastos lançados à mão no Histórico (ver
+  // syncLeadFromVehicle); o gasto "do lead" é só a diferença, pra não contar duas vezes.
+  const others = await prisma.vehicleExpense.findMany({ where: { vehicleId: vehicle.id, NOT: { id: { startsWith: `lead-${lead.id}-` } } } });
   for (const c of LEAD_COSTS) {
     const id = `lead-${lead.id}-${c.key}`;
-    const amount = lead[c.field];
-    if (amount && amount > 0) {
+    const manual = others.filter((e) => bucketOf(e.category) === c.key).reduce((t, e) => t + e.amount, 0);
+    const amount = (lead[c.field] ?? 0) - manual;
+    if (amount > 0.005) {
       await prisma.vehicleExpense.upsert({
         where: { id },
         create: { id, vehicleId: vehicle.id, amount, category: c.category, description: c.description, date: vehicle.purchaseDate },
@@ -119,4 +135,78 @@ export async function syncVehicleFromLead(leadId: string, wasBought: boolean) {
       await prisma.vehicleExpense.deleteMany({ where: { id } });
     }
   }
+}
+
+/**
+ * Caminho de volta: o que é lançado no Histórico (valores, datas, venda, gastos) vai pro lead,
+ * e assim aparece no Estoque, na Rentabilidade e no Painel. Carro do Histórico que ainda não
+ * tem lead ganha um lead de estoque (`createIfMissing`). Escreve direto no banco, sem passar
+ * pelo syncVehicleFromLead, então não volta em loop.
+ */
+export async function syncLeadFromVehicle(vehicleId: string, opts: { createIfMissing?: boolean; costsOnly?: boolean } = {}) {
+  let vehicle = await prisma.vehicle.findUnique({ where: { id: vehicleId }, include: { expenses: true } });
+  if (!vehicle) return null;
+
+  let created = false;
+  if (!vehicle.leadId) {
+    if (!opts.createIfMissing) return null;
+    const lead = await prisma.lead.create({
+      data: {
+        name: `Estoque — ${vehicle.model}`,
+        phone: `estoque-${crypto.randomUUID()}`,
+        source: "estoque",
+        status: "FECHADO",
+        resaleStatus: "EM_ESTOQUE",
+        vehicleModel: vehicle.model,
+        vehicleInfo: vehicle.model,
+        closedAt: vehicle.purchaseDate ?? new Date(),
+        conversation: { create: {} },
+      },
+    });
+    // Com lead próprio, lead e Histórico andam juntos (o lead deixa de só "preencher vazios").
+    vehicle = await prisma.vehicle.update({
+      where: { id: vehicle.id },
+      data: { leadId: lead.id, source: "lead" },
+      include: { expenses: true },
+    });
+    created = true;
+  }
+  const leadId = vehicle.leadId!;
+
+  const costs: Record<CostKey, number> = { ipva: 0, multas: 0, preparo: 0, outras: 0 };
+  for (const e of vehicle.expenses) costs[bucketOf(e.category)] += e.amount;
+  const costData = Object.fromEntries(LEAD_COSTS.map((c) => [c.field, costs[c.key] > 0 ? Math.round(costs[c.key] * 100) / 100 : null]));
+
+  const current = await prisma.lead.findUnique({ where: { id: leadId }, select: { resaleStatus: true } });
+  if (!current) return null;
+
+  const data: Record<string, unknown> = { ...costData };
+  if (!opts.costsOnly) {
+    Object.assign(data, {
+      // Carro ligado a lead de cliente que veio da planilha: campo vazio no Histórico não apaga o valor do lead.
+      purchasePrice: vehicle.source === "lead" ? vehicle.purchasePrice : vehicle.purchasePrice ?? undefined,
+      salePrice: vehicle.source === "lead" ? vehicle.salePrice : vehicle.salePrice ?? undefined,
+      ...(vehicle.plate ? { vehiclePlate: vehicle.plate } : {}),
+      ...(vehicle.year ? { vehicleYear: vehicle.year } : {}),
+      ...(vehicle.km != null ? { vehicleKm: vehicle.km } : {}),
+      ...(vehicle.purchaseDate ? { closedAt: vehicle.purchaseDate } : {}),
+    });
+    if (vehicle.saleDate) {
+      data.resaleStatus = "VENDIDO";
+      data.soldAt = vehicle.saleDate;
+    } else if (current.resaleStatus === "VENDIDO") {
+      data.resaleStatus = "EM_ESTOQUE";
+      data.soldAt = null;
+    }
+  }
+
+  const lead = await prisma.lead.update({ where: { id: leadId }, data, include: { assignedTo: { select: { id: true, name: true } } } });
+  return { lead, created };
+}
+
+// Uma vez, ao subir o servidor: os custos dos leads passam a incluir os gastos lançados à mão
+// no Histórico (antes ficavam só no Histórico e a Rentabilidade não via).
+export async function backfillLeadCostsFromVehicles() {
+  const linked = await prisma.vehicle.findMany({ where: { leadId: { not: null }, source: "lead" }, select: { id: true } });
+  for (const v of linked) await syncLeadFromVehicle(v.id, { costsOnly: true });
 }

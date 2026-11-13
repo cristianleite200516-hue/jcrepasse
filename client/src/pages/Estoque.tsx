@@ -117,7 +117,9 @@ export function Estoque() {
     }
     socket.on("lead:updated", onUpdated);
     socket.on("lead:created", onUpdated);
+    socket.on("lead:deleted", onUpdated);
     return () => {
+      socket.off("lead:deleted", onUpdated);
       socket.off("lead:updated", onUpdated);
       socket.off("lead:created", onUpdated);
     };

@@ -1,6 +1,7 @@
 import { FormEvent, useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { api } from "../lib/api";
+import { socket } from "../lib/socket";
 import { downloadCsv } from "../lib/csv";
 import { maskCurrency, useHideMoney } from "../lib/useHideMoney";
 
@@ -394,6 +395,19 @@ export function Historico() {
       .then((res) => setVehicles(res.data))
       .catch(() => setError(true))
       .finally(() => setLoading(false));
+  }, []);
+
+  // Mudou algo no Estoque/lead (venda, valor, custo)? Atualiza a lista sem precisar recarregar.
+  useEffect(() => {
+    const reload = () => api.get("/vehicles").then((res) => setVehicles(res.data)).catch(() => {});
+    socket.on("lead:updated", reload);
+    socket.on("lead:created", reload);
+    socket.on("lead:deleted", reload);
+    return () => {
+      socket.off("lead:updated", reload);
+      socket.off("lead:created", reload);
+      socket.off("lead:deleted", reload);
+    };
   }, []);
 
   const months = useMemo(() => {

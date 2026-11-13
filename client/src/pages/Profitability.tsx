@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { api } from "../lib/api";
+import { socket } from "../lib/socket";
 import { Lead, STATUS_LABELS, TEAM_NAMES } from "../lib/types";
 import { maskCurrency, useHideMoney } from "../lib/useHideMoney";
 
@@ -168,10 +169,21 @@ export function Profitability() {
   const { hidden } = useHideMoney();
 
   useEffect(() => {
-    api.get("/leads").then((res) => {
-      setLeads(res.data.filter((l: Lead) => l.purchasePrice != null || l.salePrice != null));
-      setLoading(false);
-    });
+    const load = () =>
+      api.get("/leads").then((res) => {
+        setLeads(res.data.filter((l: Lead) => l.purchasePrice != null || l.salePrice != null));
+        setLoading(false);
+      });
+    load();
+    // Lançamentos feitos no Histórico chegam aqui na hora.
+    socket.on("lead:updated", load);
+    socket.on("lead:created", load);
+    socket.on("lead:deleted", load);
+    return () => {
+      socket.off("lead:updated", load);
+      socket.off("lead:created", load);
+      socket.off("lead:deleted", load);
+    };
   }, []);
 
   async function updateField(leadId: string, field: string, value: string) {
