@@ -213,7 +213,7 @@ export async function syncLeadFromVehicle(vehicleId: string, opts: { createIfMis
 }
 
 const tokens = (t: string | null) =>
-  new Set((t ?? "").toUpperCase().normalize("NFD").replace(/[^A-Z0-9 ]/g, " ").split(/s+/).filter((w) => w.length >= 2 && !/^d+$/.test(w)));
+  new Set((t ?? "").toUpperCase().normalize("NFD").replace(/[^A-Z0-9 ]/g, " ").split(/\s+/).filter((w) => w.length >= 2 && !/^\d+$/.test(w)));
 
 /**
  * Lead do mesmo carro que ainda não está ligado a nenhum carro do Histórico: pela placa ou,
