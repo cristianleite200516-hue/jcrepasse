@@ -22,6 +22,7 @@ authRouter.post("/login", async (req, res) => {
 
   const valid = await bcrypt.compare(password, user.passwordHash);
   if (!valid) return res.status(401).json({ error: "Credenciais inválidas" });
+  if (!user.active) return res.status(403).json({ error: "Seu acesso ao CRM foi removido. Fale com o administrador." });
 
   const token = jwt.sign(
     { id: user.id, role: user.role, name: user.name, email: user.email },
@@ -58,7 +59,7 @@ authRouter.post("/users", requireAuth, requireAdmin, async (req, res) => {
 
 authRouter.get("/users", requireAuth, requireAdmin, async (_req, res) => {
   const users = await prisma.user.findMany({
-    select: { id: true, name: true, email: true, role: true, dailyGoal: true, isOwner: true, createdAt: true },
+    select: { id: true, name: true, email: true, role: true, dailyGoal: true, isOwner: true, active: true, createdAt: true },
     orderBy: { createdAt: "asc" },
   });
   res.json(users);
@@ -67,6 +68,7 @@ authRouter.get("/users", requireAuth, requireAdmin, async (_req, res) => {
 const updateUserSchema = z.object({
   dailyGoal: z.number().int().min(0).nullable().optional(),
   role: z.enum(["ADMIN", "AGENT"]).optional(),
+  active: z.boolean().optional(),
 });
 
 authRouter.patch("/users/:id", requireAuth, requireAdmin, async (req: AuthedRequest, res) => {
@@ -78,18 +80,31 @@ authRouter.patch("/users/:id", requireAuth, requireAdmin, async (req: AuthedRequ
     return res.status(400).json({ error: "Você não pode alterar o seu próprio papel" });
   }
 
-  // O admin principal (dono) nunca perde o papel de administrador, nem por outro admin.
-  if (parsed.data.role && parsed.data.role !== "ADMIN") {
+  // Só o administrador principal (dono) pode remover ou devolver acesso de alguém.
+  if (parsed.data.active !== undefined) {
+    const me = await prisma.user.findUnique({ where: { id: req.user!.id }, select: { isOwner: true } });
+    if (!me?.isOwner) {
+      return res.status(403).json({ error: "Só o administrador principal pode remover ou devolver acesso" });
+    }
+  }
+
+  // Ninguém remove o próprio acesso (evita o admin se trancar pra fora).
+  if (parsed.data.active === false && req.params.id === req.user?.id) {
+    return res.status(400).json({ error: "Você não pode remover o seu próprio acesso" });
+  }
+
+  // O admin principal (dono) nunca perde o papel de administrador nem o acesso, nem por outro admin.
+  if ((parsed.data.role && parsed.data.role !== "ADMIN") || parsed.data.active === false) {
     const target = await prisma.user.findUnique({ where: { id: req.params.id }, select: { isOwner: true } });
     if (target?.isOwner) {
-      return res.status(403).json({ error: "Esse é o administrador principal: o papel dele não pode ser alterado" });
+      return res.status(403).json({ error: "Esse é o administrador principal: o papel e o acesso dele não podem ser alterados" });
     }
   }
 
   const user = await prisma.user.update({
     where: { id: req.params.id },
     data: parsed.data,
-    select: { id: true, name: true, email: true, role: true, dailyGoal: true, isOwner: true, createdAt: true },
+    select: { id: true, name: true, email: true, role: true, dailyGoal: true, isOwner: true, active: true, createdAt: true },
   });
   res.json(user);
 });

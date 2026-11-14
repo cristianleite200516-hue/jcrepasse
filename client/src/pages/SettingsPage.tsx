@@ -12,6 +12,7 @@ interface UserRow {
   role: "ADMIN" | "AGENT";
   dailyGoal: number | null;
   isOwner?: boolean;
+  active?: boolean;
   createdAt: string;
 }
 
@@ -67,6 +68,22 @@ export function SettingsPage() {
       await api.patch(`/auth/users/${target.id}`, { role });
     } catch (err: any) {
       alert(err?.response?.data?.error || "Não foi possível alterar o papel.");
+    }
+    await loadUsers();
+  }
+
+  // Só o administrador principal (dono) vê os botões de remover/devolver acesso.
+  const amOwner = users.some((u) => u.id === currentUser?.id && u.isOwner);
+
+  async function setUserAccess(target: UserRow, active: boolean) {
+    const msg = active
+      ? `Devolver o acesso de ${target.name} ao CRM?`
+      : `Remover o acesso de ${target.name}? A pessoa sai do CRM na hora e não consegue mais entrar. Os leads e o histórico dela continuam aqui, e dá pra devolver o acesso depois.`;
+    if (!await askConfirm(msg)) return;
+    try {
+      await api.patch(`/auth/users/${target.id}`, { active });
+    } catch (err: any) {
+      alert(err?.response?.data?.error || "Não foi possível alterar o acesso.");
     }
     await loadUsers();
   }
@@ -225,12 +242,18 @@ export function SettingsPage() {
                 <th className="px-4 py-2">Papel</th>
                 <th className="px-4 py-2">Meta diária</th>
                 <th className="px-4 py-2">Desde</th>
+                <th className="px-4 py-2">Acesso</th>
               </tr>
             </thead>
             <tbody>
               {users.map((u) => (
-                <tr key={u.id} className="border-t border-slate-200">
-                  <td className="px-4 py-2 text-slate-900">{u.name}</td>
+                <tr key={u.id} className={`border-t border-slate-200 ${u.active === false ? "bg-slate-50 opacity-60" : ""}`}>
+                  <td className="px-4 py-2 text-slate-900">
+                    {u.name}
+                    {u.active === false && (
+                      <span className="ml-2 rounded-full bg-red-500/15 px-2 py-0.5 text-xs font-medium text-red-700">Sem acesso</span>
+                    )}
+                  </td>
                   <td className="px-4 py-2 text-slate-500">{u.email}</td>
                   <td className="px-4 py-2">
                     {u.isOwner ? (
@@ -263,6 +286,25 @@ export function SettingsPage() {
                     />
                   </td>
                   <td className="px-4 py-2 text-slate-500">{new Date(u.createdAt).toLocaleDateString("pt-BR")}</td>
+                  <td className="px-4 py-2">
+                    {!amOwner || u.isOwner || u.id === currentUser?.id ? (
+                      <span className="text-xs text-slate-400">—</span>
+                    ) : u.active === false ? (
+                      <button
+                        onClick={() => setUserAccess(u, true)}
+                        className="rounded-md px-2 py-1 text-xs font-medium text-emerald-700 ring-1 ring-emerald-300 hover:bg-emerald-50"
+                      >
+                        Devolver acesso
+                      </button>
+                    ) : (
+                      <button
+                        onClick={() => setUserAccess(u, false)}
+                        className="rounded-md px-2 py-1 text-xs font-medium text-red-700 ring-1 ring-red-300 hover:bg-red-50"
+                      >
+                        Remover acesso
+                      </button>
+                    )}
+                  </td>
                 </tr>
               ))}
             </tbody>

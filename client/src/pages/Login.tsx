@@ -18,8 +18,9 @@ export function Login() {
     try {
       await login(email, password);
       navigate("/");
-    } catch {
-      setError("E-mail ou senha inválidos");
+    } catch (err: any) {
+      // 403 = acesso removido pelo administrador; o resto é e-mail/senha errados.
+      setError(err?.response?.status === 403 ? err.response.data?.error : "E-mail ou senha inválidos");
     } finally {
       setLoading(false);
     }

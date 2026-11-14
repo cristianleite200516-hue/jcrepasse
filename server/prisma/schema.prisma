@@ -19,6 +19,7 @@ model User {
   role         String   @default("AGENT")
   dailyGoal    Int? // meta individual de fechamentos por dia, mostrada no Painel do dia
   isOwner      Boolean  @default(false) // admin principal (dono): ninguém tira o papel de administrador dele
+  active       Boolean  @default(true) // false = acesso removido: não entra mais no CRM, mas os leads e o histórico dele ficam
   createdAt    DateTime @default(now())
 
   assignedLeads Lead[]

@@ -26,15 +26,18 @@ export async function requireAuth(req: AuthedRequest, res: Response, next: NextF
   try {
     user = await prisma.user.findUnique({
       where: { id: userId },
-      select: { id: true, name: true, email: true, role: true },
+      select: { id: true, name: true, email: true, role: true, active: true },
     });
   } catch (err) {
     console.error("Erro ao verificar usuário autenticado:", err);
     return res.status(503).json({ error: "Não foi possível verificar o usuário" });
   }
   if (!user) return res.status(401).json({ error: "Usuário não encontrado" });
+  // Acesso removido pelo administrador: derruba na hora, mesmo com token ainda válido.
+  if (!user.active) return res.status(401).json({ error: "Seu acesso ao CRM foi removido" });
 
-  req.user = { ...user, role: user.role === "ADMIN" ? "ADMIN" : "AGENT" };
+  const { active: _active, ...rest } = user;
+  req.user = { ...rest, role: user.role === "ADMIN" ? "ADMIN" : "AGENT" };
   next();
 }
 
