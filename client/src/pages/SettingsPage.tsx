@@ -233,7 +233,7 @@ export function SettingsPage() {
           </div>
         )}
 
-        <div className="overflow-hidden rounded-lg border border-slate-200 bg-white">
+        <div className="overflow-x-auto rounded-lg border border-slate-200 bg-white">
           <table className="w-full text-sm">
             <thead className="bg-slate-50 text-left text-xs uppercase text-slate-500">
               <tr>
@@ -242,7 +242,7 @@ export function SettingsPage() {
                 <th className="px-4 py-2">Papel</th>
                 <th className="px-4 py-2">Meta diária</th>
                 <th className="px-4 py-2">Desde</th>
-                <th className="px-4 py-2">Acesso</th>
+                <th className="whitespace-nowrap px-4 py-2">Acesso</th>
               </tr>
             </thead>
             <tbody>
