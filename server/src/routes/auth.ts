@@ -109,6 +109,30 @@ authRouter.patch("/users/:id", requireAuth, requireAdmin, async (req: AuthedRequ
   res.json(user);
 });
 
+// Apaga a pessoa do CRM de vez. Só o administrador principal pode, e nunca a si mesmo.
+// Os leads dela ficam sem responsável e o histórico de alterações fica sem autor — nada de lead some.
+authRouter.delete("/users/:id", requireAuth, requireAdmin, async (req: AuthedRequest, res) => {
+  const me = await prisma.user.findUnique({ where: { id: req.user!.id }, select: { isOwner: true } });
+  if (!me?.isOwner) {
+    return res.status(403).json({ error: "Só o administrador principal pode apagar usuários" });
+  }
+  if (req.params.id === req.user!.id) {
+    return res.status(400).json({ error: "Você não pode apagar a si mesmo" });
+  }
+  const target = await prisma.user.findUnique({ where: { id: req.params.id }, select: { isOwner: true } });
+  if (!target) return res.status(404).json({ error: "Usuário não encontrado" });
+  if (target.isOwner) {
+    return res.status(403).json({ error: "O administrador principal não pode ser apagado" });
+  }
+
+  await prisma.$transaction([
+    prisma.lead.updateMany({ where: { assignedToId: req.params.id }, data: { assignedToId: null } }),
+    prisma.auditLog.updateMany({ where: { userId: req.params.id }, data: { userId: null } }),
+    prisma.user.delete({ where: { id: req.params.id } }),
+  ]);
+  res.json({ ok: true });
+});
+
 const changePasswordSchema = z.object({
   currentPassword: z.string().min(1),
   newPassword: z.string().min(6),

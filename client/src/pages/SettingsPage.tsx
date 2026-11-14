@@ -88,6 +88,17 @@ export function SettingsPage() {
     await loadUsers();
   }
 
+  async function deleteUser(target: UserRow) {
+    const msg = `Apagar ${target.name} do CRM de vez? Isso não tem volta. Os leads dela continuam no CRM, mas ficam sem responsável. Se quiser só bloquear a entrada, use "Remover acesso".`;
+    if (!await askConfirm(msg)) return;
+    try {
+      await api.delete(`/auth/users/${target.id}`);
+    } catch (err: any) {
+      alert(err?.response?.data?.error || "Não foi possível apagar o usuário.");
+    }
+    await loadUsers();
+  }
+
   async function handleSubmit(e: FormEvent) {
     e.preventDefault();
     setSaved(false);
@@ -289,20 +300,30 @@ export function SettingsPage() {
                   <td className="px-4 py-2">
                     {!amOwner || u.isOwner || u.id === currentUser?.id ? (
                       <span className="text-xs text-slate-400">—</span>
-                    ) : u.active === false ? (
-                      <button
-                        onClick={() => setUserAccess(u, true)}
-                        className="rounded-md px-2 py-1 text-xs font-medium text-emerald-700 ring-1 ring-emerald-300 hover:bg-emerald-50"
-                      >
-                        Devolver acesso
-                      </button>
                     ) : (
-                      <button
-                        onClick={() => setUserAccess(u, false)}
-                        className="rounded-md px-2 py-1 text-xs font-medium text-red-700 ring-1 ring-red-300 hover:bg-red-50"
-                      >
-                        Remover acesso
-                      </button>
+                      <div className="flex gap-2 whitespace-nowrap">
+                        {u.active === false ? (
+                          <button
+                            onClick={() => setUserAccess(u, true)}
+                            className="rounded-md px-2 py-1 text-xs font-medium text-emerald-700 ring-1 ring-emerald-300 hover:bg-emerald-50"
+                          >
+                            Devolver acesso
+                          </button>
+                        ) : (
+                          <button
+                            onClick={() => setUserAccess(u, false)}
+                            className="rounded-md px-2 py-1 text-xs font-medium text-red-700 ring-1 ring-red-300 hover:bg-red-50"
+                          >
+                            Remover acesso
+                          </button>
+                        )}
+                        <button
+                          onClick={() => deleteUser(u)}
+                          className="rounded-md bg-red-600 px-2 py-1 text-xs font-medium text-white hover:bg-red-700"
+                        >
+                          Apagar
+                        </button>
+                      </div>
                     )}
                   </td>
                 </tr>
