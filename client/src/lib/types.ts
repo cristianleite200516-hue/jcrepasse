@@ -107,7 +107,7 @@ export interface Lead {
   channel: LeadChannel | null;
 }
 
-export const TEAM_NAMES = ["Felipe Proença", "Pilo", "Matheus"];
+export const TEAM_NAMES = ["Felipe Proença", "Cristian", "Julio"];
 
 export type LeadChannel = "TRAFEGO_PAGO" | "INDICACAO" | "OUTRO";
 
