@@ -1,5 +1,5 @@
 import { Navigate, Route, Routes } from "react-router-dom";
-import { AuthProvider, useAuth } from "./lib/auth";
+import { AuthProvider, canSeeSettings, canSeeWhatsapp, useAuth } from "./lib/auth";
 import { HideMoneyProvider } from "./lib/useHideMoney";
 import { Layout } from "./components/Layout";
 import { Login } from "./pages/Login";
@@ -41,8 +41,8 @@ function PrivateRoutes() {
         <Route path="/agendamentos" element={<Appointments />} />
         <Route path="/lembretes" element={<Reminders />} />
         <Route path="/leads/:id" element={<LeadDetail />} />
-        <Route path="/whatsapp" element={<WhatsAppConnect />} />
-        {user.role === "ADMIN" && <Route path="/settings" element={<SettingsPage />} />}
+        {canSeeWhatsapp(user) && <Route path="/whatsapp" element={<WhatsAppConnect />} />}
+        {canSeeSettings(user) && <Route path="/settings" element={<SettingsPage />} />}
         <Route path="*" element={<Navigate to="/" replace />} />
       </Route>
     </Routes>

@@ -3,7 +3,14 @@ import jwt from "jsonwebtoken";
 import { prisma } from "../lib/prisma";
 
 export interface AuthedRequest extends Request {
-  user?: { id: string; role: "ADMIN" | "AGENT"; name: string; email: string };
+  user?: {
+    id: string;
+    role: "ADMIN" | "AGENT";
+    name: string;
+    email: string;
+    canSettings: boolean;
+    canWhatsapp: boolean;
+  };
 }
 
 // O papel vem do banco a cada requisição, não do token: o token vale 7 dias, então confiar nele
@@ -26,7 +33,7 @@ export async function requireAuth(req: AuthedRequest, res: Response, next: NextF
   try {
     user = await prisma.user.findUnique({
       where: { id: userId },
-      select: { id: true, name: true, email: true, role: true, active: true },
+      select: { id: true, name: true, email: true, role: true, active: true, canSettings: true, canWhatsapp: true },
     });
   } catch (err) {
     console.error("Erro ao verificar usuário autenticado:", err);
@@ -45,5 +52,18 @@ export function requireAdmin(req: AuthedRequest, res: Response, next: NextFuncti
   if (req.user?.role !== "ADMIN") {
     return res.status(403).json({ error: "Apenas administradores" });
   }
+  next();
+}
+
+// Bloqueios por pessoa, ligados pelo administrador principal na tabela de usuários.
+// O dono nunca é bloqueado (a rota de usuários não deixa), então sempre sobra quem desbloqueie.
+export function requireSettingsAccess(req: AuthedRequest, res: Response, next: NextFunction) {
+  if (req.user?.role !== "ADMIN") return res.status(403).json({ error: "Apenas administradores" });
+  if (!req.user.canSettings) return res.status(403).json({ error: "Você não tem acesso às Configurações" });
+  next();
+}
+
+export function requireWhatsappAccess(req: AuthedRequest, res: Response, next: NextFunction) {
+  if (!req.user?.canWhatsapp) return res.status(403).json({ error: "Você não tem acesso ao WhatsApp" });
   next();
 }

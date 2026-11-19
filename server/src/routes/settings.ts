@@ -1,7 +1,7 @@
 import { Router } from "express";
 import { z } from "zod";
 import { prisma } from "../lib/prisma";
-import { requireAdmin, requireAuth } from "../middleware/auth";
+import { requireAuth, requireSettingsAccess } from "../middleware/auth";
 import { getIO } from "../lib/events";
 
 export const settingsRouter = Router();
@@ -16,7 +16,7 @@ settingsRouter.get("/", async (_req, res) => {
 
 // Interruptor geral da IA — separado do PUT completo pra poder ligar/desligar com um clique,
 // sem precisar reenviar o formulário inteiro de configurações.
-settingsRouter.patch("/ai-pause", requireAdmin, async (req, res) => {
+settingsRouter.patch("/ai-pause", requireSettingsAccess, async (req, res) => {
   const parsed = z.object({ aiPaused: z.boolean() }).safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
 
@@ -62,7 +62,7 @@ settingsRouter.patch("/quick-replies", async (req, res) => {
   res.json(parsed.data.quickReplies);
 });
 
-settingsRouter.put("/", requireAdmin, async (req, res) => {
+settingsRouter.put("/", requireSettingsAccess, async (req, res) => {
   const parsed = schema.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
 

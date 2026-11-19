@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { api } from "../lib/api";
+import { canSeeSettings, useAuth } from "../lib/auth";
 import { socket } from "../lib/socket";
 import { LEAD_STATUSES, STATUS_LABELS, LeadStatus } from "../lib/types";
 
@@ -39,6 +40,7 @@ function diasParados(iso: string) {
 }
 
 export function DailyPanel() {
+  const { user } = useAuth();
   const [data, setData] = useState<DailyData | null>(null);
   const [showAtRisk, setShowAtRisk] = useState(false);
 
@@ -83,7 +85,7 @@ export function DailyPanel() {
               <span className="text-base font-normal text-slate-500"> / {data.metaFechamentos}</span>
             )}
           </div>
-          {data.metaFechamentos == null && (
+          {data.metaFechamentos == null && canSeeSettings(user) && (
             <div className="mt-1 text-[11px] text-slate-500">
               Defina uma meta em{" "}
               <Link to="/settings" className="underline">

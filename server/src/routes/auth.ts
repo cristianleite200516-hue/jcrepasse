@@ -3,7 +3,7 @@ import bcrypt from "bcryptjs";
 import jwt from "jsonwebtoken";
 import { z } from "zod";
 import { prisma } from "../lib/prisma";
-import { requireAdmin, requireAuth, AuthedRequest } from "../middleware/auth";
+import { requireAuth, requireSettingsAccess, AuthedRequest } from "../middleware/auth";
 
 export const authRouter = Router();
 
@@ -30,7 +30,17 @@ authRouter.post("/login", async (req, res) => {
     { expiresIn: "7d" }
   );
 
-  res.json({ token, user: { id: user.id, name: user.name, email: user.email, role: user.role } });
+  res.json({
+    token,
+    user: {
+      id: user.id,
+      name: user.name,
+      email: user.email,
+      role: user.role,
+      canSettings: user.canSettings,
+      canWhatsapp: user.canWhatsapp,
+    },
+  });
 });
 
 authRouter.get("/me", requireAuth, (req: AuthedRequest, res) => {
@@ -44,7 +54,7 @@ const createUserSchema = z.object({
   role: z.enum(["ADMIN", "AGENT"]).default("AGENT"),
 });
 
-authRouter.post("/users", requireAuth, requireAdmin, async (req, res) => {
+authRouter.post("/users", requireAuth, requireSettingsAccess, async (req, res) => {
   const parsed = createUserSchema.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
 
@@ -57,9 +67,9 @@ authRouter.post("/users", requireAuth, requireAdmin, async (req, res) => {
   res.status(201).json({ id: user.id, name: user.name, email: user.email, role: user.role });
 });
 
-authRouter.get("/users", requireAuth, requireAdmin, async (_req, res) => {
+authRouter.get("/users", requireAuth, requireSettingsAccess, async (_req, res) => {
   const users = await prisma.user.findMany({
-    select: { id: true, name: true, email: true, role: true, dailyGoal: true, isOwner: true, active: true, createdAt: true },
+    select: { id: true, name: true, email: true, role: true, dailyGoal: true, isOwner: true, active: true, canSettings: true, canWhatsapp: true, createdAt: true },
     orderBy: { createdAt: "asc" },
   });
   res.json(users);
@@ -69,9 +79,11 @@ const updateUserSchema = z.object({
   dailyGoal: z.number().int().min(0).nullable().optional(),
   role: z.enum(["ADMIN", "AGENT"]).optional(),
   active: z.boolean().optional(),
+  canSettings: z.boolean().optional(),
+  canWhatsapp: z.boolean().optional(),
 });
 
-authRouter.patch("/users/:id", requireAuth, requireAdmin, async (req: AuthedRequest, res) => {
+authRouter.patch("/users/:id", requireAuth, requireSettingsAccess, async (req: AuthedRequest, res) => {
   const parsed = updateUserSchema.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
 
@@ -80,8 +92,11 @@ authRouter.patch("/users/:id", requireAuth, requireAdmin, async (req: AuthedRequ
     return res.status(400).json({ error: "Você não pode alterar o seu próprio papel" });
   }
 
-  // Só o administrador principal (dono) pode remover ou devolver acesso de alguém.
-  if (parsed.data.active !== undefined) {
+  const touchesAccess =
+    parsed.data.active !== undefined || parsed.data.canSettings !== undefined || parsed.data.canWhatsapp !== undefined;
+
+  // Só o administrador principal (dono) pode remover ou devolver acesso (ao CRM todo ou a uma página).
+  if (touchesAccess) {
     const me = await prisma.user.findUnique({ where: { id: req.user!.id }, select: { isOwner: true } });
     if (!me?.isOwner) {
       return res.status(403).json({ error: "Só o administrador principal pode remover ou devolver acesso" });
@@ -89,12 +104,17 @@ authRouter.patch("/users/:id", requireAuth, requireAdmin, async (req: AuthedRequ
   }
 
   // Ninguém remove o próprio acesso (evita o admin se trancar pra fora).
-  if (parsed.data.active === false && req.params.id === req.user?.id) {
+  if (touchesAccess && req.params.id === req.user?.id) {
     return res.status(400).json({ error: "Você não pode remover o seu próprio acesso" });
   }
 
   // O admin principal (dono) nunca perde o papel de administrador nem o acesso, nem por outro admin.
-  if ((parsed.data.role && parsed.data.role !== "ADMIN") || parsed.data.active === false) {
+  if (
+    (parsed.data.role && parsed.data.role !== "ADMIN") ||
+    parsed.data.active === false ||
+    parsed.data.canSettings === false ||
+    parsed.data.canWhatsapp === false
+  ) {
     const target = await prisma.user.findUnique({ where: { id: req.params.id }, select: { isOwner: true } });
     if (target?.isOwner) {
       return res.status(403).json({ error: "Esse é o administrador principal: o papel e o acesso dele não podem ser alterados" });
@@ -104,14 +124,14 @@ authRouter.patch("/users/:id", requireAuth, requireAdmin, async (req: AuthedRequ
   const user = await prisma.user.update({
     where: { id: req.params.id },
     data: parsed.data,
-    select: { id: true, name: true, email: true, role: true, dailyGoal: true, isOwner: true, active: true, createdAt: true },
+    select: { id: true, name: true, email: true, role: true, dailyGoal: true, isOwner: true, active: true, canSettings: true, canWhatsapp: true, createdAt: true },
   });
   res.json(user);
 });
 
 // Apaga a pessoa do CRM de vez. Só o administrador principal pode, e nunca a si mesmo.
 // Os leads dela ficam sem responsável e o histórico de alterações fica sem autor — nada de lead some.
-authRouter.delete("/users/:id", requireAuth, requireAdmin, async (req: AuthedRequest, res) => {
+authRouter.delete("/users/:id", requireAuth, requireSettingsAccess, async (req: AuthedRequest, res) => {
   const me = await prisma.user.findUnique({ where: { id: req.user!.id }, select: { isOwner: true } });
   if (!me?.isOwner) {
     return res.status(403).json({ error: "Só o administrador principal pode apagar usuários" });

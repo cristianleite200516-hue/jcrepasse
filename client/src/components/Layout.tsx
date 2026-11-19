@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { NavLink, Outlet } from "react-router-dom";
-import { useAuth } from "../lib/auth";
+import { canSeeSettings, canSeeWhatsapp, useAuth } from "../lib/auth";
 import { api } from "../lib/api";
 import { socket } from "../lib/socket";
 import { Reminder } from "../lib/types";
@@ -133,10 +133,12 @@ export function Layout() {
                 )}
               </span>
             </NavLink>
-            <NavLink to="/whatsapp" className={linkClass}>
-              WhatsApp
-            </NavLink>
-            {user?.role === "ADMIN" && (
+            {canSeeWhatsapp(user) && (
+              <NavLink to="/whatsapp" className={linkClass}>
+                WhatsApp
+              </NavLink>
+            )}
+            {canSeeSettings(user) && (
               <NavLink to="/settings" className={linkClass}>
                 Configurações
               </NavLink>

@@ -13,6 +13,8 @@ interface UserRow {
   dailyGoal: number | null;
   isOwner?: boolean;
   active?: boolean;
+  canSettings?: boolean;
+  canWhatsapp?: boolean;
   createdAt: string;
 }
 
@@ -82,6 +84,15 @@ export function SettingsPage() {
     if (!await askConfirm(msg)) return;
     try {
       await api.patch(`/auth/users/${target.id}`, { active });
+    } catch (err: any) {
+      alert(err?.response?.data?.error || "Não foi possível alterar o acesso.");
+    }
+    await loadUsers();
+  }
+
+  async function setPageAccess(target: UserRow, field: "canSettings" | "canWhatsapp", allowed: boolean) {
+    try {
+      await api.patch(`/auth/users/${target.id}`, { [field]: allowed });
     } catch (err: any) {
       alert(err?.response?.data?.error || "Não foi possível alterar o acesso.");
     }
@@ -253,6 +264,7 @@ export function SettingsPage() {
                 <th className="px-4 py-2">Papel</th>
                 <th className="px-4 py-2">Meta diária</th>
                 <th className="px-4 py-2">Desde</th>
+                <th className="whitespace-nowrap px-4 py-2" title="Páginas que a pessoa pode abrir">Páginas</th>
                 <th className="whitespace-nowrap px-4 py-2">Acesso</th>
               </tr>
             </thead>
@@ -297,6 +309,32 @@ export function SettingsPage() {
                     />
                   </td>
                   <td className="px-4 py-2 text-slate-500">{new Date(u.createdAt).toLocaleDateString("pt-BR")}</td>
+                  <td className="px-4 py-2">
+                    {!amOwner || u.isOwner || u.id === currentUser?.id ? (
+                      <span className="text-xs text-slate-400">—</span>
+                    ) : (
+                      <div className="flex flex-col gap-1 whitespace-nowrap text-xs text-slate-700">
+                        {u.role === "ADMIN" && (
+                          <label className="inline-flex items-center gap-1.5">
+                            <input
+                              type="checkbox"
+                              checked={u.canSettings !== false}
+                              onChange={(e) => setPageAccess(u, "canSettings", e.target.checked)}
+                            />
+                            Configurações
+                          </label>
+                        )}
+                        <label className="inline-flex items-center gap-1.5">
+                          <input
+                            type="checkbox"
+                            checked={u.canWhatsapp !== false}
+                            onChange={(e) => setPageAccess(u, "canWhatsapp", e.target.checked)}
+                          />
+                          WhatsApp
+                        </label>
+                      </div>
+                    )}
+                  </td>
                   <td className="px-4 py-2">
                     {!amOwner || u.isOwner || u.id === currentUser?.id ? (
                       <span className="text-xs text-slate-400">—</span>

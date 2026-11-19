@@ -1,6 +1,6 @@
 import { Router } from "express";
 import { z } from "zod";
-import { requireAuth, requireAdmin, AuthedRequest } from "../middleware/auth";
+import { requireAuth, requireAdmin, requireWhatsappAccess, AuthedRequest } from "../middleware/auth";
 import {
   initWhatsApp,
   getWhatsAppStatus,
@@ -23,15 +23,15 @@ whatsappRouter.use(requireAuth);
 // Todo mundo vê o status, mas o QR só vai pra admin: quem escaneia passa a controlar o WhatsApp da loja.
 whatsappRouter.get("/status", (req: AuthedRequest, res) => {
   const status = getWhatsAppStatus();
-  res.json({ status, qr: status === "QR" && req.user?.role === "ADMIN" ? getWhatsAppQr() : null });
+  res.json({ status, qr: status === "QR" && req.user?.role === "ADMIN" && req.user.canWhatsapp ? getWhatsAppQr() : null });
 });
 
-whatsappRouter.post("/connect", requireAdmin, (_req, res) => {
+whatsappRouter.post("/connect", requireAdmin, requireWhatsappAccess, (_req, res) => {
   initWhatsApp();
   res.json({ status: getWhatsAppStatus() });
 });
 
-whatsappRouter.post("/import", requireAdmin, async (req, res) => {
+whatsappRouter.post("/import", requireAdmin, requireWhatsappAccess, async (req, res) => {
   const sinceDays = Number(req.body?.sinceDays) || 3;
   try {
     const summary = await importExistingChats(100, sinceDays);
@@ -42,7 +42,7 @@ whatsappRouter.post("/import", requireAdmin, async (req, res) => {
   }
 });
 
-whatsappRouter.post("/catch-up", requireAdmin, async (_req, res) => {
+whatsappRouter.post("/catch-up", requireAdmin, requireWhatsappAccess, async (_req, res) => {
   try {
     const summary = await catchUpUnanswered();
     res.json(summary);
@@ -54,7 +54,7 @@ whatsappRouter.post("/catch-up", requireAdmin, async (_req, res) => {
 
 const daysSchema = z.object({ days: z.number().min(0.01).max(90).optional() });
 
-whatsappRouter.get("/stalled-leads", requireAdmin, async (req, res) => {
+whatsappRouter.get("/stalled-leads", requireAdmin, requireWhatsappAccess, async (req, res) => {
   const parsed = daysSchema.safeParse({ days: req.query.days ? Number(req.query.days) : undefined });
   if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
   try {
@@ -69,7 +69,7 @@ whatsappRouter.get("/stalled-leads", requireAdmin, async (req, res) => {
 // Em segundo plano (intervalo de 25-75 s entre mensagens): o resultado chega pelo socket (reengage:done).
 let reengageRunning = false;
 
-whatsappRouter.post("/reengage-stalled", requireAdmin, async (req, res) => {
+whatsappRouter.post("/reengage-stalled", requireAdmin, requireWhatsappAccess, async (req, res) => {
   const parsed = daysSchema.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
   if (reengageRunning) return res.status(409).json({ error: "Já tem um reengajamento em andamento, aguarde terminar." });
@@ -179,10 +179,10 @@ whatsappRouter.post("/campaigns/move-responders", requireAdmin, async (req, res)
   res.json(await moveCampaignResponders(parsed.data.content, parsed.data.toStatus));
 });
 
-whatsappRouter.get("/ai-reenable/preview", requireAdmin, async (_req, res) => {
+whatsappRouter.get("/ai-reenable/preview", requireAdmin, requireWhatsappAccess, async (_req, res) => {
   res.json(await previewAiReenable());
 });
 
-whatsappRouter.post("/ai-reenable", requireAdmin, async (_req, res) => {
+whatsappRouter.post("/ai-reenable", requireAdmin, requireWhatsappAccess, async (_req, res) => {
   res.json(await applyAiReenable());
 });

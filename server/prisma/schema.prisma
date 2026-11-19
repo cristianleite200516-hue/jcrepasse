@@ -20,6 +20,8 @@ model User {
   dailyGoal    Int? // meta individual de fechamentos por dia, mostrada no Painel do dia
   isOwner      Boolean  @default(false) // admin principal (dono): ninguém tira o papel de administrador dele
   active       Boolean  @default(true) // false = acesso removido: não entra mais no CRM, mas os leads e o histórico dele ficam
+  canSettings  Boolean  @default(true) // false = não vê nem usa Configurações (nem a gestão de usuários)
+  canWhatsapp  Boolean  @default(true) // false = não vê nem usa a página WhatsApp (conectar, importar, reengajar)
   createdAt    DateTime @default(now())
 
   assignedLeads Lead[]

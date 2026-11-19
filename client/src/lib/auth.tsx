@@ -6,6 +6,17 @@ export interface User {
   name: string;
   email: string;
   role: "ADMIN" | "AGENT";
+  // Bloqueios por pessoa (ligados pelo administrador principal). Ausente = liberado.
+  canSettings?: boolean;
+  canWhatsapp?: boolean;
+}
+
+export function canSeeSettings(user: User | null) {
+  return user?.role === "ADMIN" && user.canSettings !== false;
+}
+
+export function canSeeWhatsapp(user: User | null) {
+  return !!user && user.canWhatsapp !== false;
 }
 
 interface AuthContextValue {

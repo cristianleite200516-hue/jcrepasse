@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import { api, API_HOST } from "../lib/api";
+import { canSeeWhatsapp, useAuth } from "../lib/auth";
 import { socket } from "../lib/socket";
 import { leadPhoneLabel, leadTitle } from "../lib/leadDisplay";
 import { APPOINTMENT_STATUS_LABELS, AppointmentStatus } from "../lib/types";
@@ -231,6 +232,7 @@ function AgendaList({ items, empty }: { items: AgendaItem[]; empty: string }) {
 }
 
 export function Rotina() {
+  const { user } = useAuth();
   const [data, setData] = useState<CockpitData | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const reloadTimer = useRef<number | null>(null);
@@ -275,7 +277,7 @@ export function Rotina() {
         <div className="flex items-center gap-2 text-sm text-slate-600">
           <span className={`h-2.5 w-2.5 rounded-full ${data.whatsappStatus === "READY" ? "bg-emerald-500" : "bg-red-500"}`} />
           WhatsApp: {WA_LABELS[data.whatsappStatus]}
-          {data.whatsappStatus !== "READY" && (
+          {data.whatsappStatus !== "READY" && canSeeWhatsapp(user) && (
             <Link to="/whatsapp" className="text-sky-700 hover:underline">
               reconectar
             </Link>
